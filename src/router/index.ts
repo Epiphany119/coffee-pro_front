@@ -7,6 +7,22 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'home',
     component: () => import('@/views/HomeView.vue')
+  },
+  // ============ 商家端（独立界面，与用户端分离） ============
+  {
+    path: '/merchant/auth',
+    name: 'merchant-auth',
+    component: () => import('@/views/MerchantAuthView.vue')
+  },
+  {
+    path: '/merchant',
+    name: 'merchant-home',
+    component: () => import('@/views/MerchantHomeView.vue')
+  },
+  {
+    path: '/merchant/join',
+    name: 'merchant-join',
+    component: () => import('@/views/MerchantJoinView.vue')
   }
 ]
 

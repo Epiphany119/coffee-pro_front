@@ -1,0 +1,271 @@
+<script setup lang="ts">
+import { ref, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { merchantApi } from '@/api'
+import { useMerchantStore } from '@/stores/merchant'
+
+const router = useRouter()
+const mstore = useMerchantStore()
+
+const tab = ref<'login' | 'register'>('login')
+
+// 登录
+const loginForm = reactive({ merchantNo: '', password: '' })
+const loginLoading = ref(false)
+
+// 注册
+const regForm = reactive({ password: '', confirm: '', nickname: '', phone: '' })
+const regLoading = ref(false)
+
+async function doLogin() {
+  if (!loginForm.merchantNo.trim() || !loginForm.password) {
+    ElMessage.warning('请输入商家编号和密码')
+    return
+  }
+  loginLoading.value = true
+  try {
+    const res = await merchantApi.login({
+      merchantNo: loginForm.merchantNo.trim(),
+      password: loginForm.password
+    })
+    if (res.success) {
+      mstore.setMerchant(res)
+      mstore.setJoinedStore(null)
+      ElMessage.success(`欢迎回来，${res.nickname || res.merchantNo}`)
+      router.push('/merchant')
+    } else {
+      ElMessage.error(res.message || '登录失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '登录失败')
+  } finally {
+    loginLoading.value = false
+  }
+}
+
+async function doRegister() {
+  if (regForm.password.length < 6) {
+    ElMessage.warning('密码至少 6 位')
+    return
+  }
+  if (regForm.password !== regForm.confirm) {
+    ElMessage.warning('两次输入的密码不一致')
+    return
+  }
+  regLoading.value = true
+  try {
+    const res = await merchantApi.register({
+      password: regForm.password,
+      nickname: regForm.nickname || undefined,
+      phone: regForm.phone || undefined
+    })
+    if (res.success) {
+      mstore.setMerchant(res)
+      mstore.setJoinedStore(null)
+      ElMessage.success(`注册成功！您的商家编号：${res.merchantNo}，请牢记`)
+      router.push('/merchant')
+    } else {
+      ElMessage.error(res.message || '注册失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '注册失败')
+  } finally {
+    regLoading.value = false
+  }
+}
+
+function backToUser() {
+  router.push('/')
+}
+</script>
+
+<template>
+  <div class="m-auth-page">
+    <div class="m-auth-card">
+      <div class="m-auth-head">
+        <span class="brand-mark">F</span>
+        <h1>FIKA 商家中心</h1>
+        <p>店铺入驻与管理平台</p>
+      </div>
+
+      <div class="m-tabs">
+        <button :class="{ active: tab === 'login' }" @click="tab = 'login'">登录</button>
+        <button :class="{ active: tab === 'register' }" @click="tab = 'register'">注册</button>
+      </div>
+
+      <!-- 登录 -->
+      <form v-if="tab === 'login'" class="m-form" @submit.prevent="doLogin">
+        <label>
+          <span>商家编号</span>
+          <input v-model="loginForm.merchantNo" placeholder="如 sj-410343" autocomplete="off" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input v-model="loginForm.password" type="password" placeholder="请输入密码" />
+        </label>
+        <button class="primary-btn" type="submit" :disabled="loginLoading">
+          {{ loginLoading ? '登录中...' : '登 录' }}
+        </button>
+      </form>
+
+      <!-- 注册 -->
+      <form v-else class="m-form" @submit.prevent="doRegister">
+        <p class="m-tip">注册后自动生成商家编号（sj-开头），作为您的登录账号</p>
+        <label>
+          <span>昵称</span>
+          <input v-model="regForm.nickname" placeholder="店铺老板称呼（选填）" autocomplete="off" />
+        </label>
+        <label>
+          <span>联系电话</span>
+          <input v-model="regForm.phone" placeholder="联系电话（选填）" autocomplete="off" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input v-model="regForm.password" type="password" placeholder="至少 6 位" />
+        </label>
+        <label>
+          <span>确认密码</span>
+          <input v-model="regForm.confirm" type="password" placeholder="再次输入密码" />
+        </label>
+        <button class="primary-btn" type="submit" :disabled="regLoading">
+          {{ regLoading ? '注册中...' : '注册并进入' }}
+        </button>
+      </form>
+
+      <button class="back-link" @click="backToUser">← 返回用户端</button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.m-auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pine);
+  background-image: radial-gradient(circle at 20% 10%, rgba(224, 109, 53, .18), transparent 45%),
+                    radial-gradient(circle at 80% 90%, rgba(183, 131, 37, .15), transparent 40%);
+  padding: 24px;
+}
+
+.m-auth-card {
+  width: 400px;
+  background: var(--paper);
+  border-radius: 20px;
+  padding: 40px 36px 28px;
+  box-shadow: var(--shadow);
+}
+
+.m-auth-head {
+  text-align: center;
+  margin-bottom: 28px;
+  .brand-mark {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--orange);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-family: serif;
+  }
+  h1 {
+    font-size: 22px;
+    margin-top: 14px;
+    color: var(--pine);
+    letter-spacing: .04em;
+  }
+  p {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+}
+
+.m-tabs {
+  display: flex;
+  background: var(--sand);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 24px;
+  button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 10px 0;
+    border-radius: 9px;
+    font-size: 15px;
+    color: var(--muted);
+    transition: all .2s;
+    &.active {
+      background: var(--paper);
+      color: var(--pine);
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(27, 41, 32, .08);
+    }
+  }
+}
+
+.m-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    span {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    input {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      outline: none;
+      transition: border-color .2s;
+      &:focus {
+        border-color: var(--orange);
+      }
+    }
+  }
+}
+
+.m-tip {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--soft-orange);
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+.primary-btn {
+  margin-top: 4px;
+  padding: 13px 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 16px;
+  letter-spacing: .2em;
+  transition: opacity .2s;
+  &:hover { opacity: .9; }
+  &:disabled { opacity: .5; cursor: not-allowed; }
+}
+
+.back-link {
+  display: block;
+  margin: 20px auto 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  &:hover { color: var(--orange); }
+}
+</style>

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { AuthResponse, Product, CartItem, Coupon, MemberDashboard, OrderRecord } from '@/api/types'
+import type { AuthResponse, Product, CartItem, Coupon, MemberDashboard, OrderRecord, SeatResponse } from '@/api/types'
 
 export const useAppStore = defineStore('app', () => {
   // --- Auth ---
@@ -18,6 +18,45 @@ export const useAppStore = defineStore('app', () => {
     selectedCoupon.value = null
     memberDashboard.value = null
     favoriteProducts.value = []
+    // 退出登录必须清掉本地座位，否则下一账号登录会继承上一账号的座位状态
+    setSeat(null)
+  }
+
+  // --- Seat ---
+  /** 当前座位（本地持久化，刷新不丢） */
+  const seat = ref<SeatResponse | null>(null)
+
+  function setSeat(s: SeatResponse | null) {
+    seat.value = s
+    if (s) {
+      localStorage.setItem('fikaSeat', JSON.stringify(s))
+    } else {
+      localStorage.removeItem('fikaSeat')
+    }
+  }
+
+  function loadSeat() {
+    try {
+      const raw = localStorage.getItem('fikaSeat')
+      if (!raw) {
+        seat.value = null
+        return
+      }
+      const s = JSON.parse(raw)
+      // 结构校验：旧版本残留/损坏的数据直接丢弃，避免渲染崩溃
+      if (
+        !s || typeof s !== 'object' ||
+        !s.seatId || !s.code || !s.status || !s.capacity
+      ) {
+        localStorage.removeItem('fikaSeat')
+        seat.value = null
+        return
+      }
+      seat.value = s
+    } catch {
+      localStorage.removeItem('fikaSeat')
+      seat.value = null
+    }
   }
 
   // --- Guest ---
@@ -168,6 +207,7 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     currentUser, isLoggedIn, setUser, logout,
+    seat, setSeat, loadSeat,
     getGuestId,
     products, categories, activeCategory, setMenu,
     cart, addToCart, updateCartItem, clearCart,

@@ -14,6 +14,49 @@ export interface AuthResponse {
   memberLevel: string | null
 }
 
+export interface ForgotPasswordRequest {
+  username: string
+}
+
+export interface ResetPasswordRequest {
+  token: string
+  newPassword: string
+}
+
+export interface ForgotPasswordResponse {
+  success: boolean
+  message: string
+  token: string
+}
+
+export interface AssignSeatRequest {
+  peopleCount: number
+  userId?: number | null
+  guestId?: string | null
+}
+
+export interface OccupySeatRequest {
+  userId?: number | null
+  guestId?: string | null
+}
+
+export type SeatStatus = 'FREE' | 'ASSIGNED' | 'OCCUPIED'
+
+export interface SeatResponse {
+  seatId: number
+  storeName: string
+  seatNo: string
+  code: string
+  capacity: number
+  status: SeatStatus
+  /** 占用者用户 ID（null=无），用于归属校验 */
+  assignedUserId: number | null
+  /** 占用者游客 ID（null=无），用于归属校验 */
+  assignedGuestId: string | null
+  qrContent: string | null
+  qrBase64: string | null
+}
+
 export interface Product {
   id: number
   code: string
@@ -172,4 +215,55 @@ export const STATUS_LABELS: Record<string, string> = {
   PREPARING:  '制作中',
   COMPLETED:  '已完成',
   CANCELED:   '已取消'
+}
+
+// ============================================================
+// 店铺 / 商家模块
+// ============================================================
+
+export type StoreStatus = 'OPEN' | 'CLOSED'
+
+export interface StoreResponse {
+  storeId: number
+  code: string
+  name: string
+  address: string | null
+  phone: string | null
+  businessHours: string | null
+  status: StoreStatus
+  merchantId: number | null
+}
+
+export interface StoreRequest {
+  code?: string
+  name?: string
+  address?: string
+  phone?: string
+  businessHours?: string
+  status?: StoreStatus
+  merchantId?: number
+}
+
+export type MerchantStatus = 'ACTIVE' | 'DISABLED'
+
+export interface MerchantResponse {
+  success: boolean
+  message: string
+  id: number
+  /** 商家编号 sj-开头（登录账号） */
+  merchantNo: string
+  nickname: string | null
+  phone: string | null
+  status: MerchantStatus
+}
+
+export interface MerchantRegisterRequest {
+  password: string
+  nickname?: string
+  phone?: string
+}
+
+export interface MerchantLoginRequest {
+  merchantNo: string
+  password: string
 }

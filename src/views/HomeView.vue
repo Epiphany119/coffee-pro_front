@@ -13,6 +13,7 @@ import ProductModal from '@/components/ProductModal.vue'
 import OrderHistory from '@/components/OrderHistory.vue'
 import MemberModal from '@/components/MemberModal.vue'
 import FloatingRobot from '@/components/FloatingRobot.vue'
+import SeatPanel from '@/components/SeatPanel.vue'
 
 const store = useAppStore()
 const emit = defineEmits<{ 'go-member': []; 'open-login': []; 'open-register': [] }>()
@@ -200,6 +201,9 @@ function browseMenu() {
 
     <!-- Floating robot assistant -->
     <FloatingRobot />
+
+    <!-- Seat assignment & QR occupy -->
+    <SeatPanel />
   </div>
 </template>
 

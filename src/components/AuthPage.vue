@@ -1,12 +1,16 @@
 <script setup lang="ts">
 
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { authApi } from '@/api'
 import type { AuthRequest } from '@/api/types'
 
 const store = useAppStore()
+
+type AuthView = 'login' | 'register' | 'forgot' | 'reset'
+
+const view = ref<AuthView>('login')
 
 const activeTab =
     ref<'login'|'register'>('login')
@@ -17,28 +21,73 @@ const loginForm =
       password:''
     })
 
+interface RegisterForm extends AuthRequest {
+  confirm: string
+}
+
 const registerForm =
-    ref<AuthRequest>({
+    ref<RegisterForm>({
       username:'',
       password:'',
-      nickname:''
+      nickname:'',
+      confirm:''
     })
+
+const forgotForm = ref({ username: '' })
+const resetForm = ref({ password: '', confirm: '' })
+const resetToken = ref('')
 
 const loginHint = ref('')
 const registerHint = ref('')
+const forgotHint = ref('')
+const resetHint = ref('')
+
+const loginLoading = ref(false)
+const registerLoading = ref(false)
+const forgotLoading = ref(false)
+const resetLoading = ref(false)
 
 const emit = defineEmits([
   'login-success',
   'enter-main'
 ])
 
+/** 密码强度检查（与后端 PasswordValidator 一致：≥6位 + 字母 + 数字） */
+const pwdChecks = computed(() => {
+  const p = registerForm.value.password
+  return {
+    length: p.length >= 6,
+    letter: /[a-zA-Z]/.test(p),
+    digit: /[0-9]/.test(p)
+  }
+})
+
+const pwdStrong = computed(() =>
+    pwdChecks.value.length && pwdChecks.value.letter && pwdChecks.value.digit
+)
+
 function switchTab(tab:any){
 
   activeTab.value=tab
+  view.value=tab
 
   loginHint.value=''
   registerHint.value=''
+  forgotHint.value=''
+  resetHint.value=''
 
+}
+
+function openForgot(){
+  view.value = 'forgot'
+  loginHint.value = ''
+  forgotHint.value = ''
+}
+
+function backToLogin(){
+  view.value = 'login'
+  forgotHint.value = ''
+  resetHint.value = ''
 }
 
 async function doLogin(){
@@ -53,6 +102,9 @@ async function doLogin(){
     return
 
   }
+
+  loginLoading.value = true
+  loginHint.value = ''
 
   try{
 
@@ -79,15 +131,22 @@ async function doLogin(){
 
     loginHint.value=e.message
 
+  }finally{
+
+    loginLoading.value = false
+
   }
 
 }
 
 async function doRegister(){
 
+  const p = registerForm.value.password
+
   if(
       !registerForm.value.username ||
-      !registerForm.value.password
+      !p ||
+      !registerForm.value.confirm
   ){
 
     registerHint.value='请填写完整信息'
@@ -96,12 +155,29 @@ async function doRegister(){
 
   }
 
+  if(!pwdStrong.value){
+
+    registerHint.value='密码需至少 6 位，且同时包含字母和数字'
+
+    return
+
+  }
+
+  if(p !== registerForm.value.confirm){
+
+    registerHint.value='两次输入的密码不一致'
+
+    return
+
+  }
+
+  registerLoading.value = true
+  registerHint.value = ''
+
   try{
 
     const data =
-        await authApi.register(
-            registerForm.value
-        )
+        await authApi.register(registerForm.value)
 
     if(!data.success){
 
@@ -122,6 +198,125 @@ async function doRegister(){
   }catch(e:any){
 
     registerHint.value=e.message
+
+  }finally{
+
+    registerLoading.value = false
+
+  }
+
+}
+
+async function doForgot(){
+
+  if(!forgotForm.value.username){
+
+    forgotHint.value = '请输入账号'
+
+    return
+
+  }
+
+  forgotLoading.value = true
+  forgotHint.value = ''
+
+  try{
+
+    const data =
+        await authApi.forgotPassword(forgotForm.value)
+
+    if(!data.success){
+
+      forgotHint.value = data.message
+
+      return
+
+    }
+
+    resetToken.value = data.token
+
+    resetForm.value = { password: '', confirm: '' }
+
+    view.value = 'reset'
+
+    resetHint.value = ''
+
+  }catch(e:any){
+
+    forgotHint.value = e.message
+
+  }finally{
+
+    forgotLoading.value = false
+
+  }
+
+}
+
+async function doReset(){
+
+  const p = resetForm.value.password
+
+  if(!p || !resetForm.value.confirm){
+
+    resetHint.value = '请填写完整信息'
+
+    return
+
+  }
+
+  if(
+      p.length < 6 ||
+      !/[a-zA-Z]/.test(p) ||
+      !/[0-9]/.test(p)
+  ){
+
+    resetHint.value = '密码需至少 6 位，且同时包含字母和数字'
+
+    return
+
+  }
+
+  if(p !== resetForm.value.confirm){
+
+    resetHint.value = '两次输入的密码不一致'
+
+    return
+
+  }
+
+  resetLoading.value = true
+  resetHint.value = ''
+
+  try{
+
+    const data =
+        await authApi.resetPassword({
+          token: resetToken.value,
+          newPassword: p
+        })
+
+    if(!data.success){
+
+      resetHint.value = data.message
+
+      return
+
+    }
+
+    ElMessage.success('密码已重置，请用新密码登录')
+
+    resetToken.value = ''
+
+    backToLogin()
+
+  }catch(e:any){
+
+    resetHint.value = e.message
+
+  }finally{
+
+    resetLoading.value = false
 
   }
 
@@ -168,7 +363,10 @@ async function doRegister(){
           <span>FIKA</span>
         </div>
 
-        <div class="tabs">
+        <div
+            class="tabs"
+            v-if="view==='login'||view==='register'"
+        >
           <button
               :class="{active:activeTab==='login'}"
               @click="switchTab('login')"
@@ -184,7 +382,7 @@ async function doRegister(){
         </div>
 
         <form
-            v-if="activeTab==='login'"
+            v-if="view==='login'"
             @submit.prevent="doLogin"
         >
           <label>
@@ -204,13 +402,111 @@ async function doRegister(){
             />
           </label>
 
-          <button class="submit">
-            登录并开始点单
+          <div class="pwd-row">
+            <span></span>
+            <button
+                type="button"
+                class="link-btn"
+                @click="openForgot"
+            >
+              忘记密码？
+            </button>
+          </div>
+
+          <button
+              class="submit"
+              :disabled="loginLoading"
+          >
+            {{ loginLoading ? '登录中...' : '登录并开始点单' }}
           </button>
 
           <p class="hint">
             {{loginHint}}
           </p>
+        </form>
+
+        <form
+            v-else-if="view==='forgot'"
+            @submit.prevent="doForgot"
+        >
+          <div class="sub-title">找回密码</div>
+          <p class="sub-desc">
+            输入账号获取重置令牌，30 分钟内有效
+          </p>
+
+          <label>
+            账号
+            <input
+                v-model="forgotForm.username"
+                placeholder="输入注册时的账号"
+            />
+          </label>
+
+          <button
+              class="submit"
+              :disabled="forgotLoading"
+          >
+            {{ forgotLoading ? '获取中...' : '获取重置令牌' }}
+          </button>
+
+          <p class="hint">
+            {{forgotHint}}
+          </p>
+
+          <button
+              type="button"
+              class="link-btn center"
+              @click="backToLogin"
+          >
+            返回登录
+          </button>
+        </form>
+
+        <form
+            v-else-if="view==='reset'"
+            @submit.prevent="doReset"
+        >
+          <div class="sub-title">重置密码</div>
+          <p class="sub-desc">
+            令牌已生成，请设置新密码
+          </p>
+
+          <label>
+            新密码
+            <input
+                v-model="resetForm.password"
+                type="password"
+                placeholder="至少 6 位，含字母和数字"
+            />
+          </label>
+
+          <label>
+            确认新密码
+            <input
+                v-model="resetForm.confirm"
+                type="password"
+                placeholder="再次输入新密码"
+            />
+          </label>
+
+          <button
+              class="submit"
+              :disabled="resetLoading"
+          >
+            {{ resetLoading ? '重置中...' : '重置密码' }}
+          </button>
+
+          <p class="hint">
+            {{resetHint}}
+          </p>
+
+          <button
+              type="button"
+              class="link-btn center"
+              @click="backToLogin"
+          >
+            返回登录
+          </button>
         </form>
 
         <form
@@ -230,7 +526,25 @@ async function doRegister(){
             <input
                 v-model="registerForm.password"
                 type="password"
-                placeholder="密码"
+                placeholder="至少 6 位，含字母和数字"
+            />
+          </label>
+
+          <div
+              class="pwd-checks"
+              v-if="registerForm.password"
+          >
+            <span :class="{ok:pwdChecks.length}">至少 6 位</span>
+            <span :class="{ok:pwdChecks.letter}">含字母</span>
+            <span :class="{ok:pwdChecks.digit}">含数字</span>
+          </div>
+
+          <label>
+            确认密码
+            <input
+                v-model="registerForm.confirm"
+                type="password"
+                placeholder="再次输入密码"
             />
           </label>
 
@@ -242,8 +556,11 @@ async function doRegister(){
             />
           </label>
 
-          <button class="submit">
-            创建会员账户
+          <button
+              class="submit"
+              :disabled="registerLoading"
+          >
+            {{ registerLoading ? '注册中...' : '创建会员账户' }}
           </button>
 
           <p class="hint">
@@ -466,6 +783,80 @@ input:focus {
 
 .submit:hover {
   transform: translateY(-2px);
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 密码行（右侧忘记密码链接） */
+.pwd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: -4px 0 6px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  color: #df7438;
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.link-btn.center {
+  display: block;
+  margin: 4px auto 0;
+}
+
+/* 找回密码/重置密码子标题 */
+.sub-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #19342b;
+  margin-bottom: 4px;
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+}
+
+.sub-desc {
+  font-size: 12px;
+  color: #999;
+  margin: 0 0 18px;
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+}
+
+/* 注册密码强度提示 */
+.pwd-checks {
+  display: flex;
+  gap: 14px;
+  margin: -6px 0 14px;
+}
+
+.pwd-checks span {
+  font-size: 11px;
+  color: #bbb;
+  font-family: "Inter", "Noto Sans SC", sans-serif;
+}
+
+.pwd-checks span::before {
+  content: "○ ";
+}
+
+.pwd-checks span.ok {
+  color: #2e9e6b;
+}
+
+.pwd-checks span.ok::before {
+  content: "● ";
 }
 
 .guest {

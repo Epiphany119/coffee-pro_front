@@ -2,12 +2,23 @@ import axios from 'axios'
 import type {
   AuthRequest,
   AuthResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ResetPasswordRequest,
+  AssignSeatRequest,
+  OccupySeatRequest,
+  SeatResponse,
   MenuResponse,
   OrderRequest,
   OrderResponse,
   OrderRecord,
   MemberDashboard,
-  Product
+  Product,
+  MerchantRegisterRequest,
+  MerchantLoginRequest,
+  MerchantResponse,
+  StoreRequest,
+  StoreResponse
 } from './types'
 
 // ============================================================
@@ -108,7 +119,10 @@ const request = axios.create({
 })
 
 request.interceptors.response.use(
-  (res) => res.data,
+  (res) => {
+    const body = res.data
+    return body && body.data ? body.data : body
+  },
   (err) => {
     console.error('[fika-api] request failed:', err.config?.url, err.message)
     if (err.response?.status === 0) {
@@ -125,6 +139,12 @@ export const authApi = {
   register: (data: AuthRequest) =>
     request.post<any, AuthResponse>('/auth/register', data),
 
+  forgotPassword: (data: ForgotPasswordRequest) =>
+    request.post<any, ForgotPasswordResponse>('/auth/forgot-password', data),
+
+  resetPassword: (data: ResetPasswordRequest) =>
+    request.post<any, AuthResponse>('/auth/reset-password', data),
+
   getUser: (id: number) =>
     request.get<any, AuthResponse>(`/auth/user/${id}`)
 }
@@ -132,6 +152,28 @@ export const authApi = {
 export const menuApi = {
   getMenu: () =>
     request.get<any, MenuResponse>('/menu')
+}
+
+export const seatApi = {
+  /** 按人数分配空闲座位，返回座位信息与落座二维码 */
+  assign: (data: AssignSeatRequest) =>
+    request.post<any, SeatResponse>('/seat/assign', data),
+
+  /** 解析二维码内容（座位编号） */
+  resolve: (code: string) =>
+    request.get<any, SeatResponse>('/seat/resolve', { params: { code } }),
+
+  /** 确认落座 */
+  occupy: (id: number, data: OccupySeatRequest) =>
+    request.post<any, SeatResponse>(`/seat/${id}/occupy`, data),
+
+  /** 离座释放 */
+  leave: (id: number) =>
+    request.post<any, SeatResponse>(`/seat/${id}/leave`),
+
+  /** 全部座位状态 */
+  list: () =>
+    request.get<any, SeatResponse[]>('/seat/list')
 }
 
 export const orderApi = {
@@ -168,4 +210,48 @@ export const favoriteApi = {
 
   removeFavorite: (userId: number, productCode: string) =>
     request.delete<any, { success: boolean; message: string }>(`/favorites/${userId}/${productCode}`)
+}
+
+// ============================================================
+// 商家 / 店铺模块（商家界面）
+// ============================================================
+
+export const merchantApi = {
+  /** 商家注册（商家编号 sj-xxx 由服务端生成） */
+  register: (data: MerchantRegisterRequest) =>
+    request.post<any, MerchantResponse>('/merchant/register', data),
+
+  /** 商家登录（商家编号 + 密码） */
+  login: (data: MerchantLoginRequest) =>
+    request.post<any, MerchantResponse>('/merchant/login', data),
+
+  /** 商家信息 */
+  getMerchant: (id: number) =>
+    request.get<any, MerchantResponse>(`/merchant/${id}`),
+
+  /** 我的店铺（登录后入驻状态） */
+  myStores: (id: number) =>
+    request.get<any, StoreResponse[]>(`/merchant/${id}/stores`)
+}
+
+export const storeApi = {
+  /** 创建店铺（开新店，可带 merchantId 直接归属） */
+  create: (data: StoreRequest) =>
+    request.post<any, StoreResponse>('/store', data),
+
+  /** 全部店铺列表 */
+  list: () =>
+    request.get<any, StoreResponse[]>('/store/list'),
+
+  /** 可入驻店铺列表（21 家种子店中未入驻的） */
+  available: () =>
+    request.get<any, StoreResponse[]>('/store/available'),
+
+  /** 入驻已有店铺 */
+  bind: (storeId: number, merchantId: number) =>
+    request.post<any, StoreResponse>(`/store/${storeId}/bind`, null, { params: { merchantId } }),
+
+  /** 更新店铺 */
+  update: (storeId: number, data: StoreRequest) =>
+    request.put<any, StoreResponse>(`/store/${storeId}`, data)
 }
