@@ -27,6 +27,14 @@ export default defineConfig(({ mode }) => {
           timeout: 10000,
           proxyTimeout: 10000,
           ws: false
+        },
+        // 商品图片静态资源（后端 {user.home}/coffee-uploads/ 映射 /uploads/**）
+        '/uploads': {
+          target: apiTarget,
+          changeOrigin: true,
+          timeout: 10000,
+          proxyTimeout: 10000,
+          ws: false
         }
       }
     }

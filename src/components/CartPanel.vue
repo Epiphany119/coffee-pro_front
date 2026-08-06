@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { SIZE_LABELS, CONDIMENTS } from '@/api/types'
+import { CONDIMENTS, sizeText } from '@/api/types'
 
 const store = useAppStore()
 const orderNote = ref('')
@@ -63,7 +63,7 @@ const emit = defineEmits<{
       <div v-for="(item, i) in store.cart" :key="i" class="cart-item">
         <div>
           <h4>{{ item.productName }}</h4>
-          <p>{{ SIZE_LABELS[item.size] }} · {{ item.condiments.map((c: string) => CONDIMENTS[c]?.name || c).join('、') || '标准配方' }}</p>
+          <p>{{ sizeText(item) }} · {{ item.condiments.map((c: string) => CONDIMENTS[c]?.name || c).join('、') || '标准配方' }}</p>
           <b>{{ fmtMoney(item.unitPrice * item.quantity * store.memberRate()) }}</b>
         </div>
         <div class="quantity">
@@ -130,7 +130,7 @@ const emit = defineEmits<{
 <style lang="scss" scoped>
 .bag-panel {
   width: 365px;
-  height: 457.67px;
+  max-height: calc(100vh - 32px);
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 18px;

@@ -2,9 +2,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
-import { orderApi, favoriteApi } from '@/api'
-import { STATUS_LABELS, SIZE_LABELS, CATEGORY_META } from '@/api/types'
-import type { Product } from '@/api/types'
+import { orderApi, favoriteApi, membershipApi } from '@/api'
+import { STATUS_LABELS, CATEGORY_META, sizeText } from '@/api/types'
+import type { Product, RedeemItem, Voucher } from '@/api/types'
 
 const store = useAppStore()
 
@@ -19,8 +19,62 @@ onMounted(async () => {
     await loadOrders()
     await loadFavorites()
     await loadMemberDashboard()
+    await loadMembership()
   }
 })
+
+// --- Membership（会员卡积分 / 卡券包 / 兑换） ---
+/** 积分以会员卡账本为准（兑换扣减即时同步），未开卡自动开卡 */
+const cardPoints = ref(0)
+const vouchers = ref<Voucher[]>([])
+/** 兑换项由后端 /membership/redeem-items 下发（免硬编码，改规则不用动前端） */
+const redeemItems = ref<RedeemItem[]>([])
+
+async function loadMembership() {
+  if (!store.currentUser?.id) return
+  try {
+    let card = await membershipApi.getCard(store.currentUser.id)
+    if (!card) card = await membershipApi.initCard(store.currentUser.id)
+    cardPoints.value = card?.points ?? 0
+    await Promise.all([loadVouchers(), loadRedeemItems()])
+  } catch (e) {
+    console.warn('membership', e)
+  }
+}
+
+async function loadVouchers() {
+  if (!store.currentUser?.id) return
+  try {
+    vouchers.value = (await membershipApi.getVouchers(store.currentUser.id)) || []
+  } catch (e) {
+    console.warn('vouchers', e)
+  }
+}
+
+async function loadRedeemItems() {
+  try {
+    redeemItems.value = (await membershipApi.getRedeemItems()) || []
+  } catch (e) {
+    console.warn('redeem-items', e)
+  }
+}
+
+function canRedeem(item: RedeemItem) {
+  return cardPoints.value >= item.costPoints
+}
+
+async function redeem(item: RedeemItem) {
+  if (!store.currentUser?.id) return
+  if (!confirm(`确认用 ${item.costPoints} 积分兑换「${item.name}」吗？兑换后直接发放到卡券包`)) return
+  try {
+    const result = await membershipApi.redeemPoints(store.currentUser.id, item.code)
+    ElMessage.success(result.message)
+    await loadMembership()
+    await loadMemberDashboard()
+  } catch (e: any) {
+    ElMessage.error(`兑换失败：${e.message}`)
+  }
+}
 
 // --- Orders ---
 const orders = ref<any[]>([])
@@ -47,6 +101,9 @@ async function cancelOrder(id: number) {
     await orderApi.cancelUserOrder(id, 'cancel')
     ElMessage.success('订单已取消')
     await loadOrders()
+    // 取消后同步刷新：累计消费/等级（已完成订单取消会扣回）+ 积分账本
+    await loadMemberDashboard()
+    await loadMembership()
   } catch (e: any) {
     ElMessage.error(`取消失败：${e.message}`)
   }
@@ -58,7 +115,7 @@ const favorites = ref<Product[]>([])
 async function loadFavorites() {
   if (!store.currentUser?.id) return
   try {
-    const data = await favoriteApi.getFavorites(store.currentUser.id)
+    const data = await favoriteApi.getFavorites({ userId: store.currentUser.id })
     favorites.value = data || []
   } catch (e) {
     console.warn(e)
@@ -68,7 +125,7 @@ async function loadFavorites() {
 async function removeFavorite(product: Product) {
   if (!store.currentUser?.id) return
   try {
-    await favoriteApi.removeFavorite(store.currentUser.id, product.code)
+    await favoriteApi.removeFavorite({ userId: store.currentUser.id, productCode: product.code })
     favorites.value = favorites.value.filter(p => p.code !== product.code)
     ElMessage.success('已取消收藏')
   } catch (e) {
@@ -105,10 +162,19 @@ function formatTime(value: string | number[]) {
 
 const m = computed(() => store.memberDashboard)
 
+/** 总共已省金额：优先用后端 dashboard 的 totalSaved，接口未返回时从订单列表兜底计算（已完成订单 原价-实付 之和） */
+const totalSaved = computed(() => {
+  const fromApi = store.memberDashboard?.totalSaved
+  if (fromApi != null && fromApi > 0) return fromApi
+  return Math.round(orders.value
+    .filter(o => o.status === 'COMPLETED')
+    .reduce((s, o) => s + Math.max(0, (o.originalPrice || 0) - (o.finalPrice || 0)), 0) * 100) / 100
+})
+
 const nextLevelLabel = computed(() => {
   if (!m.value) return ''
-  if (m.value.nextThreshold === 300) return 'VIP 85折'
-  return 'SVIP 7折'
+  if (m.value.nextThreshold === 500) return 'SVIP 9折'
+  return 'VIP 95折'
 })
 
 function handleLogout() {
@@ -142,13 +208,14 @@ function handleLogout() {
     <div class="member-hero" v-if="m">
       <div class="hero-inner">
         <div class="stat-card">
-          <b>{{ m.points }}</b>
+          <b>{{ cardPoints }}</b>
           <small>可用积分</small>
         </div>
         <div class="stat-divider"></div>
         <div class="stat-card">
           <b>{{ fmtMoney(m.totalSpent) }}</b>
           <small>累计消费</small>
+          <small class="saved-hint">已省 {{ fmtMoney(totalSaved) }}</small>
         </div>
         <div class="stat-divider"></div>
         <div class="stat-card">
@@ -206,7 +273,7 @@ function handleLogout() {
         </div>
 
         <div v-if="filteredOrders.length" class="order-grid">
-          <div v-for="o in filteredOrders" :key="o.id" class="order-card">
+          <div v-for="o in filteredOrders" :key="o.id" class="order-card" :class="{ canceled: o.status === 'CANCELED' }">
             <div class="order-card-top">
               <span>#{{ o.id }}</span>
               <el-tag size="small" :type="o.status === 'COMPLETED' ? 'success' : o.status === 'CANCELED' ? 'danger' : o.status === 'PREPARING' ? '' : 'warning'">
@@ -215,13 +282,20 @@ function handleLogout() {
             </div>
             <p class="order-name">{{ o.beverageName }}</p>
             <p class="order-meta">
-              {{ SIZE_LABELS[o.size] || o.size }} · {{ o.condiments || '' }}
+              {{ sizeText(o) }} · {{ o.condiments || '' }}
               · {{ formatTime(o.createdAt) }}
             </p>
             <div class="order-card-bottom">
-              <b>{{ fmtMoney(o.finalPrice) }}</b>
+              <div class="order-price">
+                <span class="price-line">原价 <s class="price-original">{{ fmtMoney(o.originalPrice) }}</s></span>
+                <span class="price-line pay">实付 <b>{{ fmtMoney(o.finalPrice) }}</b></span>
+                <span v-if="o.finalPrice < o.originalPrice" class="price-line saved">
+                  已省 <b>{{ fmtMoney(Math.round((o.originalPrice - o.finalPrice) * 100) / 100) }}</b>
+                </span>
+                <span v-else class="price-line saved none">已省 ¥0.00</span>
+              </div>
               <el-button
-                v-if="o.status === 'PENDING'"
+                v-if="o.status === 'PENDING' || o.status === 'COMPLETED'"
                 text
                 type="danger"
                 size="small"
@@ -264,7 +338,38 @@ function handleLogout() {
     <!-- Tab: Points & Coupons -->
     <div v-if="activeTab === 'points'" class="tab-content">
       <div class="points-inner">
-        <h3 class="section-title">我的优惠券</h3>
+        <h3 class="section-title">积分兑换</h3>
+        <div class="redeem-grid">
+          <div v-for="r in redeemItems" :key="r.code" class="redeem-card" :class="{ disabled: !canRedeem(r) }">
+            <div class="redeem-info">
+              <b>{{ r.name }}</b>
+              <small>{{ r.costPoints }} 积分 · 无门槛 · 兑换后直接发放到卡券包</small>
+            </div>
+            <el-button
+              size="small"
+              :type="canRedeem(r) ? 'primary' : 'info'"
+              :disabled="!canRedeem(r)"
+              @click="redeem(r)"
+            >{{ canRedeem(r) ? '兑换' : '积分不足' }}</el-button>
+          </div>
+        </div>
+
+        <h3 class="section-title">我的卡券包</h3>
+        <div v-if="vouchers.length" class="voucher-list">
+          <div v-for="v in vouchers" :key="v.id" class="voucher-card">
+            <div class="voucher-left">
+              <b>¥{{ v.discount }}</b>
+              <small>{{ v.minimum > 0 ? '满' + v.minimum + '可用' : '无门槛' }}</small>
+            </div>
+            <div class="voucher-body">
+              <b>{{ v.name }}</b>
+              <small>{{ v.voucherNo }} · {{ formatTime(v.createdAt) }} 发放</small>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-state">卡券包还是空的，用积分兑换吧。</div>
+
+        <h3 class="section-title">会员权益券</h3>
         <div v-if="m?.coupons?.length" class="coupon-list">
           <div v-for="c in m.coupons" :key="c.code" class="coupon-card">
             <div class="coupon-left">
@@ -372,6 +477,12 @@ function handleLogout() {
   text-align: center;
   b { display: block; color: white; font-size: 28px; }
   small { color: rgba(255,255,255,0.6); font-size: 11px; }
+  .saved-hint {
+    display: block;
+    margin-top: 3px;
+    color: #ffd9a8;
+    font-size: 10px;
+  }
 }
 
 .stat-divider {
@@ -496,6 +607,12 @@ function handleLogout() {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
+
+  /* 已取消订单：整体置灰（同店铺打烊样式） */
+  &.canceled {
+    opacity: 0.45;
+    background: #f4f4f2;
+  }
 }
 
 .order-card-top {
@@ -522,8 +639,39 @@ function handleLogout() {
 .order-card-bottom {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  b { color: var(--orange); font-size: 14px; }
+  align-items: flex-end;
+}
+
+.order-price {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  .price-line {
+    font-size: 11px;
+    color: var(--muted);
+
+    b { font-size: 12px; color: var(--muted); font-weight: 600; }
+  }
+
+  .price-original {
+    color: var(--muted);
+    text-decoration: line-through;
+    font-size: 11px;
+  }
+
+  .pay b {
+    color: var(--orange);
+    font-size: 15px;
+  }
+
+  .saved b {
+    color: #2e9e5b;
+  }
+
+  .saved.none {
+    opacity: 0.55;
+  }
 }
 
 // Favorites
@@ -554,7 +702,7 @@ function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: center;
-  img { width: 100%; height: 100%; object-fit: cover; }
+  img { width: 100%; height: 100%; object-fit: contain; padding: 8px; box-sizing: border-box; }
 }
 
 .fav-img-placeholder {
@@ -592,11 +740,82 @@ function handleLogout() {
   &:hover { background: var(--orange); color: white; }
 }
 
+// Redeem（积分兑换）
+.redeem-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .redeem-grid { grid-template-columns: 1fr; }
+}
+
+.redeem-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+
+  &.disabled {
+    opacity: 0.55;
+    background: #f4f4f2;
+  }
+}
+
+.redeem-info {
+  b { display: block; font-size: 14px; margin-bottom: 3px; }
+  small { font-size: 11px; color: var(--muted); }
+}
+
+// Voucher（卡券包）
+.voucher-list {
+  display: grid;
+  gap: 8px;
+}
+
+.voucher-card {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.voucher-left {
+  width: 92px;
+  background: var(--pine);
+  color: white;
+  text-align: center;
+  padding: 12px 0;
+  flex-shrink: 0;
+
+  b { display: block; font-size: 19px; }
+  small { font-size: 10px; opacity: 0.8; }
+}
+
+.voucher-body {
+  flex: 1;
+  padding: 10px 14px;
+
+  b { display: block; font-size: 13px; margin-bottom: 2px; }
+  small { font-size: 10px; color: var(--muted); }
+}
+
 // Coupons
 .section-title {
   font-size: 18px;
   font-weight: normal;
   margin: 0 0 14px;
+
+  &:not(:first-child) {
+    margin-top: 30px;
+  }
 }
 
 .coupon-list {

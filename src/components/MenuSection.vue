@@ -12,7 +12,8 @@ const filteredProducts = computed(() => {
   let list = store.products.filter(p => p.categoryCode === store.activeCategory)
 
   if (quickPick.value === 'favorites') {
-    const favs = store.getFavorites()
+    // 收藏统一走服务端（登录按 userId、游客按 guestId，均入库）
+    const favs = new Set(store.favoriteProducts.map(p => p.code))
     list = store.products.filter(p => favs.has(p.code))
   } else if (quickPick.value === 'light') {
     list = store.products.filter(p => p.categoryCode === 'food')

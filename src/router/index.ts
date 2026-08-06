@@ -15,14 +15,22 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/MerchantAuthView.vue')
   },
   {
-    path: '/merchant',
-    name: 'merchant-home',
-    component: () => import('@/views/MerchantHomeView.vue')
-  },
-  {
     path: '/merchant/join',
     name: 'merchant-join',
     component: () => import('@/views/MerchantJoinView.vue')
+  },
+  {
+    path: '/merchant',
+    component: () => import('@/views/MerchantLayout.vue'),
+    children: [
+      { path: '', redirect: '/merchant/dashboard' },
+      { path: 'guide', name: 'merchant-guide', component: () => import('@/views/MerchantHomeView.vue') },
+      { path: 'dashboard', name: 'merchant-dashboard', component: () => import('@/views/MerchantDashboardView.vue') },
+      { path: 'orders', name: 'merchant-orders', component: () => import('@/views/MerchantOrdersView.vue') },
+      { path: 'menu', name: 'merchant-menu', component: () => import('@/views/MerchantMenuView.vue') },
+      { path: 'seats', name: 'merchant-seats', component: () => import('@/views/MerchantSeatsView.vue') },
+      { path: 'settings', name: 'merchant-settings', component: () => import('@/views/MerchantSettingsView.vue') }
+    ]
   }
 ]
 

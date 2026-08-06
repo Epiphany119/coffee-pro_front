@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { merchantApi } from '@/api'
 import type { MerchantResponse, StoreResponse } from '@/api/types'
 
 /**
@@ -53,5 +54,25 @@ export const useMerchantStore = defineStore('merchant', () => {
     } catch {}
   }
 
-  return { merchant, joinedStore, isLoggedIn, hasJoined, setMerchant, setJoinedStore, loadSession, clear }
+  /**
+   * 从后端恢复店铺绑定（登录后/刷新页面时本地 joinedStore 丢失，但 DB 中商家已绑定店铺）
+   * @returns 是否已入驻（已入驻则 joinedStore 已恢复）
+   */
+  async function ensureJoinedStore(): Promise<boolean> {
+    if (joinedStore.value) return true
+    if (!merchant.value?.id) return false
+    try {
+      const stores = await merchantApi.myStores(merchant.value.id)
+      if (stores && stores.length > 0) {
+        setJoinedStore(stores[0])
+        return true
+      }
+      setJoinedStore(null)
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  return { merchant, joinedStore, isLoggedIn, hasJoined, setMerchant, setJoinedStore, loadSession, ensureJoinedStore, clear }
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore } from '@/stores/app'
-import { STATUS_LABELS, SIZE_LABELS } from '@/api/types'
+import { STATUS_LABELS, sizeText } from '@/api/types'
 
 const store = useAppStore()
 
@@ -54,7 +54,7 @@ const emit = defineEmits<{ 'cancel': [id: number] }>()
         </div>
         <p class="order-name">{{ o.beverageName }}</p>
         <p class="order-meta">
-          {{ SIZE_LABELS[o.size] || o.size }} · {{ o.condiments || '' }}
+          {{ sizeText(o) }} · {{ o.condiments || '' }}
           · {{ formatTime(o.createdAt) }}
         </p>
         <div class="order-card-bottom">

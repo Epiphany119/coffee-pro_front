@@ -1,6 +1,8 @@
 <script setup lang="ts">
 
 import { computed, ref } from 'vue'
+import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
+import fikaLogo from '@/assets/images/fika-logo.png'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { authApi } from '@/api'
@@ -330,8 +332,7 @@ async function doReset(){
     <!-- 左侧品牌区域 -->
     <div class="brand-side">
       <div class="big-logo">
-        <span>F</span>
-        FIKA
+        <img class="big-logo-img" :src="fikaLogo" alt="Fika" />
       </div>
 
       <h2>
@@ -359,7 +360,7 @@ async function doReset(){
       <div class="login-card">
         <!-- 卡片内 Logo -->
         <div class="card-brand">
-          <div class="card-logo">F</div>
+          <img class="card-logo" :src="fikaLogoMark" alt="Fika" />
           <span>FIKA</span>
         </div>
 
@@ -632,25 +633,9 @@ async function doReset(){
   color: white;
 }
 
-.big-logo {
-  font-family: "DM Serif Display", "Noto Serif SC", serif;
-  font-size: 46px;
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.big-logo span {
-  background: #df7438;
-  width: 55px;
-  height: 55px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: "DM Serif Display", serif;
-  font-size: 36px;
-  color: white;
+.big-logo-img {
+  width: 150px;
+  height: auto;
 }
 
 .brand-side h2 {
@@ -709,13 +694,8 @@ async function doReset(){
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #df7438;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: "DM Serif Display", serif;
-  font-size: 18px;
+  object-fit: cover;
+  display: block;
 }
 
 .tabs {

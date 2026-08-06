@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
+import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { merchantApi } from '@/api'
+import { merchantApi, storeApi } from '@/api'
+import type { StoreResponse } from '@/api/types'
 import { useMerchantStore } from '@/stores/merchant'
 
 const router = useRouter()
@@ -15,8 +17,19 @@ const loginForm = reactive({ merchantNo: '', password: '' })
 const loginLoading = ref(false)
 
 // 注册
-const regForm = reactive({ password: '', confirm: '', nickname: '', phone: '' })
+const regForm = reactive({ username: '', password: '', confirm: '', nickname: '', phone: '' })
 const regLoading = ref(false)
+/** 可入驻店铺列表（入驻现有店铺 = 激活该店预分配的商家编号） */
+const stores = ref<StoreResponse[]>([])
+const selectedStoreId = ref<number | null>(null)
+
+onMounted(async () => {
+  try {
+    stores.value = await storeApi.available()
+  } catch (e: any) {
+    console.warn('加载可入驻店铺失败', e)
+  }
+})
 
 async function doLogin() {
   if (!loginForm.merchantNo.trim() || !loginForm.password) {
@@ -31,7 +44,8 @@ async function doLogin() {
     })
     if (res.success) {
       mstore.setMerchant(res)
-      mstore.setJoinedStore(null)
+      // 从后端恢复店铺绑定：已入驻直接进仪表盘，未入驻显示入驻引导
+      await mstore.ensureJoinedStore()
       ElMessage.success(`欢迎回来，${res.nickname || res.merchantNo}`)
       router.push('/merchant')
     } else {
@@ -45,6 +59,10 @@ async function doLogin() {
 }
 
 async function doRegister() {
+  if (!regForm.username.trim()) {
+    ElMessage.warning('请输入用户端账号的用户名')
+    return
+  }
   if (regForm.password.length < 6) {
     ElMessage.warning('密码至少 6 位')
     return
@@ -56,14 +74,25 @@ async function doRegister() {
   regLoading.value = true
   try {
     const res = await merchantApi.register({
+      username: regForm.username.trim(),
       password: regForm.password,
       nickname: regForm.nickname || undefined,
-      phone: regForm.phone || undefined
+      phone: regForm.phone || undefined,
+      storeId: selectedStoreId.value ?? undefined
     })
     if (res.success) {
       mstore.setMerchant(res)
-      mstore.setJoinedStore(null)
-      ElMessage.success(`注册成功！您的商家编号：${res.merchantNo}，请牢记`)
+      if (selectedStoreId.value != null) {
+        const joined = stores.value.find(s => s.storeId === selectedStoreId.value) || null
+        mstore.setJoinedStore(joined)
+      } else {
+        mstore.setJoinedStore(null)
+      }
+      ElMessage.success(
+        selectedStoreId.value != null
+          ? `入驻成功！您的商家编号：${res.merchantNo}，请牢记`
+          : `注册成功！您的商家编号：${res.merchantNo}，请牢记`
+      )
       router.push('/merchant')
     } else {
       ElMessage.error(res.message || '注册失败')
@@ -84,7 +113,7 @@ function backToUser() {
   <div class="m-auth-page">
     <div class="m-auth-card">
       <div class="m-auth-head">
-        <span class="brand-mark">F</span>
+        <img class="brand-mark" :src="fikaLogoMark" alt="Fika" />
         <h1>FIKA 商家中心</h1>
         <p>店铺入驻与管理平台</p>
       </div>
@@ -111,7 +140,15 @@ function backToUser() {
 
       <!-- 注册 -->
       <form v-else class="m-form" @submit.prevent="doRegister">
-        <p class="m-tip">注册后自动生成商家编号（sj-开头），作为您的登录账号</p>
+        <p class="m-tip">
+          注册后自动生成商家编号（sj-开头），作为商家登录账号。<br />
+          用户名须为已注册的用户端账号，密码与该账号的用户端登录密码一致；提交资料后审核通过即可入驻（当前系统默认直接通过）。<br />
+          选择入驻店铺：每家门店已预分配商家编号，入驻即激活并绑定该店。
+        </p>
+        <label>
+          <span>用户名（用户端账号）</span>
+          <input v-model="regForm.username" placeholder="请输入用户端注册的用户名" autocomplete="off" />
+        </label>
         <label>
           <span>昵称</span>
           <input v-model="regForm.nickname" placeholder="店铺老板称呼（选填）" autocomplete="off" />
@@ -121,15 +158,24 @@ function backToUser() {
           <input v-model="regForm.phone" placeholder="联系电话（选填）" autocomplete="off" />
         </label>
         <label>
-          <span>密码</span>
-          <input v-model="regForm.password" type="password" placeholder="至少 6 位" />
+          <span>密码（与用户端登录密码一致）</span>
+          <input v-model="regForm.password" type="password" placeholder="用户端账号的登录密码" />
         </label>
         <label>
           <span>确认密码</span>
           <input v-model="regForm.confirm" type="password" placeholder="再次输入密码" />
         </label>
+        <label>
+          <span>入驻店铺（选填，入驻现有门店后不可再入驻其他店）</span>
+          <select v-model="selectedStoreId" class="m-select">
+            <option :value="null">暂不入驻，之后开新店</option>
+            <option v-for="s in stores" :key="s.storeId" :value="s.storeId">
+              {{ s.name }}
+            </option>
+          </select>
+        </label>
         <button class="primary-btn" type="submit" :disabled="regLoading">
-          {{ regLoading ? '注册中...' : '注册并进入' }}
+          {{ regLoading ? '提交审核中...' : '提交资料并注册' }}
         </button>
       </form>
 
@@ -165,13 +211,8 @@ function backToUser() {
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background: var(--orange);
-    color: white;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 32px;
-    font-family: serif;
+    object-fit: cover;
+    display: inline-block;
   }
   h1 {
     font-size: 22px;
@@ -229,6 +270,18 @@ function backToUser() {
       background: #fff;
       outline: none;
       transition: border-color .2s;
+      &:focus {
+        border-color: var(--orange);
+      }
+    }
+    .m-select {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      outline: none;
+      font-size: 14px;
+      color: var(--pine);
       &:focus {
         border-color: var(--orange);
       }

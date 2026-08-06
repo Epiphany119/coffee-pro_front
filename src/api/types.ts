@@ -30,6 +30,8 @@ export interface ForgotPasswordResponse {
 }
 
 export interface AssignSeatRequest {
+  /** 店铺 id（座位按店隔离，用户端当前店铺） */
+  storeId?: number | null
   peopleCount: number
   userId?: number | null
   guestId?: string | null
@@ -44,6 +46,8 @@ export type SeatStatus = 'FREE' | 'ASSIGNED' | 'OCCUPIED'
 
 export interface SeatResponse {
   seatId: number
+  /** 店铺 id（校验座位归属店铺） */
+  storeId: number
   storeName: string
   seatNo: string
   code: string
@@ -53,37 +57,63 @@ export interface SeatResponse {
   assignedUserId: number | null
   /** 占用者游客 ID（null=无），用于归属校验 */
   assignedGuestId: string | null
+  /** 分配时间（商家端展示） */
+  assignedAt?: string | number[] | null
+  /** 占用时间（商家端展示） */
+  occupiedAt?: string | number[] | null
   qrContent: string | null
   qrBase64: string | null
 }
 
 export interface Product {
   id: number
+  /** 归属店铺 id（按店隔离后商家端需要） */
+  storeId?: number
   code: string
   name: string
+  /** 分类外键（menu_category.id，与 categoryCode 一致） */
+  categoryId?: number | null
   categoryCode: string
   basePrice: number
+  /** 三档规格定价（商家可编辑；缺省时回退 basePrice） */
+  priceSmall?: number | null
+  priceMedium?: number | null
+  priceLarge?: number | null
   description: string
   imageUrl: string
   temperature: string
+  /** 是否上架（商家端可下架，用户端只显示上架商品） */
+  available?: boolean
   allowedCondiments: string[]
+  /** 定制规格单位（coffee/tea/ice → ml，dessert/food → g） */
+  customUnit?: string
 }
 
 export interface Category {
+  /** 类目 id（menu_category.id） */
+  id?: number
   code: string
   name: string
   icon: string
+  /** 归属：0=共享类目，N=商家自定义类目 */
+  storeId?: number
 }
 
 export interface MenuResponse {
   products: Product[]
   sizes: string[]
   observers: string[]
+  /** 定制规格计价规则（基准量：饮品 ml / 甜点轻食 g） */
+  customRule?: { baseMl: number; baseG: number }
+  /** 店铺可见类目：共享类目 + 该店自定义类目 */
+  categories?: Category[]
 }
 
 export interface CartItemRequest {
   productCode: string
   size: string
+  /** 定制尺寸输入（如 "300"），size=CUSTOM 时有效 */
+  customSize?: string
   condiments: string[]
   quantity: number
 }
@@ -92,6 +122,8 @@ export interface OrderRequest {
   items: CartItemRequest[]
   userId: number | null
   guestId: string | null
+  /** 下单店铺 id（用户端当前店铺） */
+  storeId: number | null
   couponCode?: string | null
   fulfillmentType: string
   note?: string
@@ -129,14 +161,23 @@ export interface OrderResponse {
 
 export interface OrderRecord {
   id: number
+  storeId?: number
   beverageName: string
   size: string
+  /** 定制尺寸输入（如 "300"），size=CUSTOM 时有效 */
+  customSize?: string
   condiments: string
   originalPrice: number
   finalPrice: number
   status: string
   createdAt: string | number[]
   categoryCode?: string
+  /** user=用户订单 / guest=游客订单 */
+  orderType?: string
+  /** PICKUP 到店自取 / DINE_IN 店内用餐 */
+  fulfillmentType?: string
+  note?: string
+  estimatedReadyTime?: string
 }
 
 export interface Coupon {
@@ -147,9 +188,43 @@ export interface Coupon {
   description: string
 }
 
+/** 卡券包里的券（积分兑换所得） */
+export interface Voucher {
+  id: number
+  voucherNo: string
+  name: string
+  discount: number
+  minimum: number
+  status: number
+  source: string
+  createdAt: string
+  expiresAt?: string | null
+}
+
+/** 积分兑换项（接口 /membership/redeem-items 下发） */
+export interface RedeemItem {
+  code: string
+  name: string
+  costPoints: number
+  /** 拆分明细：兑换后按张发放 */
+  grants?: { name: string; discount: number; count: number }[]
+}
+
+/** 积分兑换结果 */
+export interface RedeemResult {
+  itemCode: string
+  itemName: string
+  costPoints: number
+  remainingPoints: number
+  vouchers: Voucher[]
+  message: string
+}
+
 export interface MemberDashboard {
   nickname: string
   totalSpent: number
+  /** 累计已省金额（已完成订单 原价-实付 之和） */
+  totalSaved: number
   memberLevel: string
   points: number
   pointsLevel: string
@@ -164,6 +239,8 @@ export interface CartItem {
   productName: string
   categoryCode: string
   size: string
+  /** 定制尺寸输入（如 "300"），size=CUSTOM 时有效 */
+  customSize?: string
   condiments: string[]
   quantity: number
   unitPrice: number
@@ -191,7 +268,21 @@ export const CONDIMENTS: Record<string, CondimentOption> = {
 export const SIZE_LABELS: Record<string, string> = {
   SMALL: '小份',
   MEDIUM: '中份',
-  LARGE: '大份'
+  LARGE: '大份',
+  CUSTOM: '定制'
+}
+
+/** 定制规格单位：coffee/tea/ice → ml（毫升），dessert/food → g（克） */
+export function customUnitOf(categoryCode?: string): string {
+  return categoryCode === 'coffee' || categoryCode === 'tea' || categoryCode === 'ice' ? 'ml' : 'g'
+}
+
+/** 规格展示文本：定制显示为"定制 300ml"，其余按 SIZE_LABELS */
+export function sizeText(o: { size?: string; customSize?: string; categoryCode?: string }): string {
+  if (o.size === 'CUSTOM') {
+    return o.customSize ? `定制 ${o.customSize}${customUnitOf(o.categoryCode)}` : '定制'
+  }
+  return SIZE_LABELS[o.size || 'MEDIUM'] || o.size || ''
 }
 
 export const SIZE_EXTRAS: Record<string, Record<string, number>> = {
@@ -254,16 +345,57 @@ export interface MerchantResponse {
   merchantNo: string
   nickname: string | null
   phone: string | null
+  /** 绑定的店名（入驻后非空） */
+  storeName?: string | null
   status: MerchantStatus
 }
 
 export interface MerchantRegisterRequest {
+  /** 用户端账号（coffee_user.username），须已注册且未注册过商家 */
+  username: string
+  /** 与用户端登录密码一致 */
   password: string
   nickname?: string
   phone?: string
+  /** 入驻现有店铺时必填（激活该店预分配的占位商家记录并绑定）；为空 = 开新店模式 */
+  storeId?: number
 }
 
 export interface MerchantLoginRequest {
   merchantNo: string
   password: string
+}
+
+/** 商家端菜单新增/编辑请求（对应后端 MenuItemRequest） */
+export interface StoreMenuRequest {
+  code?: string
+  name: string
+  /** 分类外键（menu_category.id；新建类目后提交新类目 id） */
+  categoryId?: number | null
+  categoryCode: string
+  basePrice: number
+  /** 三档规格定价（缺省回退 basePrice） */
+  priceSmall?: number | null
+  priceMedium?: number | null
+  priceLarge?: number | null
+  description?: string
+  imageUrl?: string
+  temperature?: string
+  available: boolean
+}
+
+/** 商家创建自定义类目请求（对应后端 MenuCategoryRequest） */
+export interface CategoryRequest {
+  name: string
+  icon?: string
+}
+
+/** 商家端工作台数据（GET /api/merchant/{id}/dashboard） */
+export interface MerchantDashboard {
+  store: StoreResponse
+  todayRevenue: number
+  todayOrders: number
+  pendingOrders: number
+  weekSales: { day: string; amount: number }[]
+  recentOrders: OrderRecord[]
 }

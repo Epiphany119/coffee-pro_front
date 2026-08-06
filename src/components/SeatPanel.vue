@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { seatApi } from '@/api'
@@ -23,12 +23,12 @@ const capacityLabel = computed(() => {
   return '多人桌'
 })
 
-/** 当前身份标识（登录用户或游客） */
-function identity() {
+/** 当前身份标识（登录用户或后端签发的游客身份，均不入浏览器存储） */
+async function identity() {
   if (store.isLoggedIn && store.currentUser?.id != null) {
     return { userId: store.currentUser.id, guestId: null as string | null }
   }
-  return { userId: null as number | null, guestId: store.getGuestId() }
+  return { userId: null as number | null, guestId: await store.ensureGuestId() }
 }
 
 onMounted(async () => {
@@ -40,16 +40,53 @@ onMounted(async () => {
     return
   }
 
-  // 2. 恢复本地座位（刷新后）
-  store.loadSeat()
-  if (store.seat) {
-    await validateStoredSeat()
-    return
-  }
-
-  // 3. 新用户：弹选人数
-  modal.value = 'select'
+  // 2. 本地无座位（刷新后内存清空）：直接向后端找回自己已落座的座位（幽灵占座恢复）
+  //    店铺尚未选定（首次进入，选店弹窗优先）时，等下方 watch 触发
+  if (!store.currentStore) return
+  await ensureSeatState()
 })
+
+// 选定/切换店铺、或登录身份变化后：本地无座位时优先尝试恢复自己未释放的座位。
+// 若选座弹窗已打开（如游客态校验失败弹出的取号框），先收起再恢复，恢复成功直接显示座位卡，失败才弹回
+watch([() => store.currentStore, () => store.storePickerOpen, () => store.isLoggedIn], async ([s, pickerOpen]) => {
+  if (pickerOpen) return
+  if (s && !store.seat) {
+    const hadSelect = modal.value === 'select'
+    modal.value = null
+    const restored = await tryRestoreSeat()
+    if (!restored && hadSelect) modal.value = 'select'
+  }
+})
+
+/** 本地无座位时：按身份找回当前店已落座的座位，找回失败才弹取号框 */
+async function ensureSeatState() {
+  const restored = await tryRestoreSeat()
+  if (!restored) {
+    modal.value = 'select'
+  }
+}
+
+/** 幽灵占座恢复：查当前店中当前身份已落座的座位，有则恢复显示并返回 true */
+async function tryRestoreSeat(): Promise<boolean> {
+  if (!store.currentStore) return false
+  const { userId, guestId } = await identity()
+  try {
+    const list = await seatApi.occupied({
+      storeId: store.currentStore.storeId,
+      userId: userId ?? undefined,
+      guestId: guestId ?? undefined
+    })
+    if (list && list.length > 0) {
+      const latest = list[0]
+      store.setSeat(latest)
+      ElMessage.info(`已恢复你的座位：${latest.code}`)
+      return true
+    }
+  } catch (e) {
+    console.warn('座位恢复查询失败', e)
+  }
+  return false
+}
 
 function readSeatParam(): string | null {
   const params = new URLSearchParams(window.location.search)
@@ -61,41 +98,19 @@ function clearSeatParam() {
   history.replaceState(null, '', window.location.pathname)
 }
 
-/** 校验本地座位是否仍有效（防止超时释放/被占） */
-async function validateStoredSeat() {
-  try {
-    const data = await seatApi.resolve(store.seat!.code)
-    store.setSeat(data)
-    if (data.status === 'FREE') {
-      // 座位已被超时释放：清理本地并重新弹取号
-      ElMessage.info('座位已释放，请重新取号')
-      modal.value = 'select'
-      return
-    }
-    // 归属校验：座位必须属于当前身份，防止跨账号继承他人座位状态
-    // （例如 Kaoyanjuan 占用的座位，其他账号登录后不应继续显示）
-    const { userId, guestId } = identity()
-    const isMine =
-      (data.assignedUserId != null && data.assignedUserId === userId) ||
-      (data.assignedGuestId != null && data.assignedGuestId === guestId)
-    if (!isMine) {
-      store.setSeat(null)
-      ElMessage.info('检测到其他账号的座位记录，已清除，请重新取号')
-      modal.value = 'select'
-    }
-  } catch {
-    // 本地座位已失效（不存在/编号格式不对）：清理并重新弹取号
-    store.setSeat(null)
-    modal.value = 'select'
-  }
-}
-
 /** 扫码进入：解析并确认落座 */
 async function openConfirm(code: string) {
   modal.value = 'confirm'
   pendingSeat.value = null
   try {
-    pendingSeat.value = await seatApi.resolve(code)
+    const data = await seatApi.resolve(code)
+    // 店铺匹配校验：座位属于其他店铺时拒绝落座
+    if (store.currentStore && data.storeId != null && data.storeId !== store.currentStore.storeId) {
+      ElMessage.error(`该座位属于「${data.storeName}」，请切换到对应店铺后扫码`)
+      modal.value = null
+      return
+    }
+    pendingSeat.value = data
   } catch (e: any) {
     pendingSeat.value = null
     ElMessage.error(`座位解析失败：${e.message}`)
@@ -105,10 +120,25 @@ async function openConfirm(code: string) {
 async function doAssign() {
   assigning.value = true
   try {
-    const { userId, guestId } = identity()
-    const data = await seatApi.assign({ peopleCount: peopleCount.value, userId, guestId })
+    if (!store.currentStore) {
+      ElMessage.warning('请先选择店铺')
+      return
+    }
+    const { userId, guestId } = await identity()
+    const data = await seatApi.assign({
+      storeId: store.currentStore.storeId,
+      peopleCount: peopleCount.value,
+      userId,
+      guestId
+    })
     store.setSeat(data)
-    modal.value = 'qr'
+    if (data.status === 'OCCUPIED') {
+      // 后端一人一桌：身份已有落座座位时幂等返回旧座位，直接显示座位卡
+      modal.value = null
+      ElMessage.success(`已恢复你的座位 · ${data.code}`)
+    } else {
+      modal.value = 'qr'
+    }
   } catch (e: any) {
     ElMessage.error(`取号失败：${e.message}`)
   } finally {
@@ -120,7 +150,7 @@ async function doAssign() {
 async function doOccupy(seatId: number) {
   occupying.value = true
   try {
-    const { userId, guestId } = identity()
+    const { userId, guestId } = await identity()
     const data = await seatApi.occupy(seatId, { userId, guestId })
     store.setSeat(data)
     modal.value = null

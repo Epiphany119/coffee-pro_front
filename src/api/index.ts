@@ -17,8 +17,15 @@ import type {
   MerchantRegisterRequest,
   MerchantLoginRequest,
   MerchantResponse,
+  MerchantDashboard,
+  StoreMenuRequest,
   StoreRequest,
-  StoreResponse
+  StoreResponse,
+  Category,
+  CategoryRequest,
+  Voucher,
+  RedeemItem,
+  RedeemResult
 } from './types'
 
 // ============================================================
@@ -104,19 +111,22 @@ async function detectApiHost(): Promise<string> {
   return CANDIDATE_HOSTS[0]
 }
 
-const API_BASE = isInMiniProgramWebView
-  ? await detectApiHost()
-  : ''  // 浏览器走 Vite 代理
-
-if (isInMiniProgramWebView) {
-  console.log('[fika-api] WebView using backend:', API_BASE)
-}
+// 浏览器走 Vite 代理（baseURL 为空）；小程序 WebView 需探测后端地址
+const API_BASE = ''
 
 const request = axios.create({
   baseURL: API_BASE + '/api',
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' }
 })
+
+// WebView 场景：异步探测后端地址（构建目标不支持顶层 await，探测完成后写入 baseURL）
+if (isInMiniProgramWebView) {
+  detectApiHost().then((host) => {
+    request.defaults.baseURL = host + '/api'
+    console.log('[fika-api] WebView using backend:', host)
+  })
+}
 
 request.interceptors.response.use(
   (res) => {
@@ -146,12 +156,25 @@ export const authApi = {
     request.post<any, AuthResponse>('/auth/reset-password', data),
 
   getUser: (id: number) =>
-    request.get<any, AuthResponse>(`/auth/user/${id}`)
+    request.get<any, AuthResponse>(`/auth/user/${id}`),
+
+  /** 用户店铺偏好（数据库存储，非浏览器） */
+  getPreference: (id: number) =>
+    request.get<any, { success: boolean; lastStoreId: number | null }>(`/auth/user/${id}/preference`),
+
+  updatePreference: (id: number, storeId: number | null) =>
+    request.put<any, { success: boolean; message: string }>(`/auth/user/${id}/preference`, { storeId })
+}
+
+/** 游客会话（未登录身份由后端签发入库，前端仅内存持有） */
+export const guestApi = {
+  createSession: () =>
+    request.post<any, { success: boolean; guestId: string }>('/guest/session')
 }
 
 export const menuApi = {
-  getMenu: () =>
-    request.get<any, MenuResponse>('/menu')
+  getMenu: (storeId?: number) =>
+    request.get<any, MenuResponse>('/menu', { params: { storeId } })
 }
 
 export const seatApi = {
@@ -171,9 +194,13 @@ export const seatApi = {
   leave: (id: number) =>
     request.post<any, SeatResponse>(`/seat/${id}/leave`),
 
-  /** 全部座位状态 */
-  list: () =>
-    request.get<any, SeatResponse[]>('/seat/list')
+  /** 全部座位状态（storeId 为空查全部） */
+  list: (storeId?: number) =>
+    request.get<any, SeatResponse[]>('/seat/list', { params: { storeId } }),
+
+  /** 按身份查当前店已落座座位（幽灵占座恢复：本地无座位时找回自己占的座） */
+  occupied: (params: { storeId: number; userId?: number; guestId?: string }) =>
+    request.get<any, SeatResponse[]>('/seat/occupied', { params })
 }
 
 export const orderApi = {
@@ -193,7 +220,15 @@ export const orderApi = {
     request.post<any, OrderResponse>(`/order/user/${id}/action?action=${action}`),
 
   cancelGuestOrder: (id: number, action: string) =>
-    request.post<any, OrderResponse>(`/order/guest/${id}/action?action=${action}`)
+    request.post<any, OrderResponse>(`/order/guest/${id}/action?action=${action}`),
+
+  /** 商家端：店铺订单列表（status 空 = 全部） */
+  getStoreOrders: (storeId: number, status?: string) =>
+    request.get<any, OrderRecord[]>('/orders', { params: { storeId, status } }),
+
+  /** 商家端：订单状态操作（start 接单 / complete 完成 / cancel 取消） */
+  merchantAction: (orderId: number, action: string, storeId: number) =>
+    request.post<any, OrderResponse>(`/orders/${orderId}/action?action=${action}&storeId=${storeId}`)
 }
 
 export const memberApi = {
@@ -201,15 +236,45 @@ export const memberApi = {
     request.get<any, MemberDashboard>(`/member/${userId}/dashboard`)
 }
 
+/** 会员体系（等级/积分兑换/权益/卡券包） */
+export const membershipApi = {
+  getCard: (userId: number) =>
+    request.get<any, any>(`/membership/card`, { params: { userId } }),
+
+  initCard: (userId: number) =>
+    request.post<any, any>(`/membership/card/init`, { userId }),
+
+  getBenefits: (userId: number) =>
+    request.get<any, any[]>(`/membership/benefits`, { params: { userId } }),
+
+  getLevelRules: () =>
+    request.get<any, any>(`/membership/level-rules`),
+
+  /** 积分兑换项列表（规则后端下发，前端免硬编码） */
+  getRedeemItems: () =>
+    request.get<any, RedeemItem[]>(`/membership/redeem-items`),
+
+  redeemPoints: (userId: number, itemCode: string) =>
+    request.post<any, RedeemResult>(`/membership/points/redeem`, { userId, itemCode }),
+
+  getVouchers: (userId: number) =>
+    request.get<any, Voucher[]>(`/membership/vouchers`, { params: { userId } })
+}
+
+/** 收藏（登录用户按 userId、游客按 guestId，均由后端入库隔离） */
 export const favoriteApi = {
-  getFavorites: (userId: number) =>
-    request.get<any, Product[]>(`/favorites/${userId}`),
+  getFavorites: (params: { userId?: number; guestId?: string }) =>
+    request.get<any, Product[]>('/favorites', { params }),
 
-  addFavorite: (userId: number, productCode: string) =>
-    request.post<any, { success: boolean; message: string }>('/favorites', { userId, productCode }),
+  addFavorite: (params: { userId?: number; guestId?: string; productCode: string }) =>
+    request.post<any, { success: boolean; message: string }>('/favorites', params),
 
-  removeFavorite: (userId: number, productCode: string) =>
-    request.delete<any, { success: boolean; message: string }>(`/favorites/${userId}/${productCode}`)
+  removeFavorite: (params: { userId?: number; guestId?: string; productCode: string }) =>
+    request.delete<any, { success: boolean; message: string }>('/favorites', { params }),
+
+  /** 游客登录后把游客收藏合并到用户账号 */
+  merge: (userId: number, guestId: string) =>
+    request.post<any, { success: boolean; message: string }>('/favorites/merge', { userId, guestId })
 }
 
 // ============================================================
@@ -231,7 +296,11 @@ export const merchantApi = {
 
   /** 我的店铺（登录后入驻状态） */
   myStores: (id: number) =>
-    request.get<any, StoreResponse[]>(`/merchant/${id}/stores`)
+    request.get<any, StoreResponse[]>(`/merchant/${id}/stores`),
+
+  /** 商家工作台：店铺概览 + 今日统计 + 近7日营业额 + 近期订单 */
+  dashboard: (merchantId: number) =>
+    request.get<any, MerchantDashboard>(`/merchant/${merchantId}/dashboard`)
 }
 
 export const storeApi = {
@@ -247,11 +316,47 @@ export const storeApi = {
   available: () =>
     request.get<any, StoreResponse[]>('/store/available'),
 
+  /** 营业中店铺列表（用户端左上角选店） */
+  open: () =>
+    request.get<any, StoreResponse[]>('/store/open'),
+
   /** 入驻已有店铺 */
   bind: (storeId: number, merchantId: number) =>
     request.post<any, StoreResponse>(`/store/${storeId}/bind`, null, { params: { merchantId } }),
 
   /** 更新店铺 */
   update: (storeId: number, data: StoreRequest) =>
-    request.put<any, StoreResponse>(`/store/${storeId}`, data)
+    request.put<any, StoreResponse>(`/store/${storeId}`, data),
+
+  /** 商家端：店铺菜单全量（含下架商品） */
+  menuList: (storeId: number) =>
+    request.get<any, Product[]>(`/store/${storeId}/menu`),
+
+  /** 商家端：新增商品（店内 code 唯一） */
+  menuCreate: (storeId: number, data: StoreMenuRequest) =>
+    request.post<any, Product>(`/store/${storeId}/menu`, data),
+
+  /** 商家端：编辑商品（改价/改名/上下架） */
+  menuUpdate: (storeId: number, productId: number, data: Partial<StoreMenuRequest>) =>
+    request.put<any, Product>(`/store/${storeId}/menu/${productId}`, data),
+
+  /** 店铺可见类目：共享类目 + 该店自定义类目 */
+  categories: (storeId: number) =>
+    request.get<any, Category[]>(`/store/${storeId}/categories`),
+
+  /** 商家端：创建自定义类目（仅本店可见） */
+  createCategory: (storeId: number, data: CategoryRequest) =>
+    request.post<any, Category>(`/store/${storeId}/category`, data),
+
+  /** 商家端：上传商品图片（本地磁盘存储），返回 { url } */
+  uploadMenuImage: async (storeId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await axios.post(`/api/store/${storeId}/menu/image`, fd, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    const body = res.data
+    return body && body.data ? body.data : body
+  }
 }

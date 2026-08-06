@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { CONDIMENTS } from '@/api/types'
 
+const props = defineProps<{ modelValue: boolean }>()
+
 const store = useAppStore()
 
 const m = computed(() => store.memberDashboard)
@@ -12,17 +14,23 @@ function fmtMoney(v: number) {
 }
 
 const emit = defineEmits<{
-  close: []
+  'update:modelValue': [v: boolean]
   'select-coupon': [coupon: any]
 }>()
+
+/** 选择优惠券：通知父组件并关闭弹窗 */
+function chooseCoupon(c: any) {
+  emit('select-coupon', c)
+  emit('update:modelValue', false)
+}
 </script>
 
 <template>
   <el-dialog
-    :model-value="!!m"
+    :model-value="modelValue"
     title="会员中心"
     width="620px"
-    @update:model-value="$emit('close')"
+    @update:model-value="emit('update:modelValue', $event)"
   >
     <div v-if="m" class="member-content">
       <section class="member-hero">
@@ -31,7 +39,7 @@ const emit = defineEmits<{
         <p>{{ m.nickname }}，每一次好好喝咖啡都值得被记录。</p>
         <div class="point-balance">
           <div><b>{{ m.points }}</b><small>可用积分</small></div>
-          <div><b>{{ fmtMoney(m.totalSpent) }}</b><small>累计消费</small></div>
+          <div><b>{{ fmtMoney(m.totalSpent) }}</b><small>累计消费<em>已省 {{ fmtMoney(m.totalSaved || 0) }}</em></small></div>
           <div><b>{{ m.pointsLevel }}</b><small>积分等级</small></div>
         </div>
       </section>
@@ -45,7 +53,7 @@ const emit = defineEmits<{
           <span :style="{ width: Math.min(100, m.progress) + '%' }"></span>
         </div>
         <p v-if="m.amountToNext > 0">
-          再消费 {{ fmtMoney(m.amountToNext) }}，解锁 {{ m.nextThreshold === 300 ? 'VIP 85 折' : 'SVIP 7 折' }}。
+          再消费 {{ fmtMoney(m.amountToNext) }}，解锁 {{ m.nextThreshold === 500 ? 'SVIP 9 折' : 'VIP 95 折' }}。
         </p>
         <p v-else>已解锁最高会员折扣，感谢你的长期陪伴。</p>
       </section>
@@ -56,7 +64,7 @@ const emit = defineEmits<{
           v-for="c in m.coupons"
           :key="c.code"
           class="member-coupon"
-          @click="$emit('select-coupon', c)"
+          @click="chooseCoupon(c)"
         >
           <div>
             <b>{{ c.name }}</b>
@@ -64,7 +72,12 @@ const emit = defineEmits<{
           </div>
           <span>立即使用 →</span>
         </div>
+        <p v-if="!m.coupons?.length" class="no-coupon">暂无可用优惠券，多喝几杯就有啦</p>
       </div>
+    </div>
+    <div v-else class="member-empty">
+      <p>正在加载会员权益…</p>
+      <small>若长时间无响应，请确认已登录会员账号</small>
     </div>
   </el-dialog>
 </template>
@@ -114,6 +127,13 @@ p {
   margin-top: 20px;
   b { display: block; font-size: 23px; }
   small { color: #d5e0d8; font-size: 10px; }
+  em {
+    display: block;
+    margin-top: 2px;
+    font-style: normal;
+    color: #ffd9a8;
+    font-size: 9px;
+  }
 }
 
 .member-progress {
@@ -168,5 +188,20 @@ p { font-size: 11px; color: var(--muted); margin: 0; }
   small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
   span { color: var(--orange); font-size: 12px; font-weight: bold; align-self: center; }
   &:hover { background: #fff3dc; }
+}
+
+.no-coupon {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px 0;
+}
+
+.member-empty {
+  text-align: center;
+  padding: 48px 12px;
+  color: var(--muted);
+  p { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0 0 6px; }
+  small { font-size: 12px; }
 }
 </style>

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
+import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AuthPage from '@/components/AuthPage.vue'
 import HomeView from '@/views/HomeView.vue'
 import MemberView from '@/views/MemberView.vue'
 import { useAppStore } from '@/stores/app'
-import { menuApi } from '@/api'
+import { menuApi, storeApi } from '@/api'
 
 const store = useAppStore()
 const route = useRoute()
@@ -29,18 +30,49 @@ watch(() => store.isLoggedIn, (isLoggedIn) => {
 })
 
 onMounted(async () => {
+  // 启动流程：加载店铺列表 → 恢复登录态（会话凭证，仅主动退出才回登录页）→ 恢复/兜底店铺
   try {
-    const data = await menuApi.getMenu()
+    const stores = await storeApi.list()
+    store.setStoreList(stores)
+    const restoredUser = await store.restoreSession()
+    if (restoredUser) {
+      // 登录用户：直接进主页并恢复上次店铺（无偏好时内部兜底第一家营业店，自动写库）
+      view.value = 'main'
+      const restored = await store.restoreLastStore()
+      if (!restored) store.openStorePicker()
+    } else {
+      // 游客：直接进入主页浏览（游客身份由后端重新签发），登录页只在主动退出/主动登录时出现
+      view.value = 'main'
+      if (!store.currentStore) store.openStorePicker()
+    }
+  } catch (e) {
+    console.warn('load stores failed', e)
+  }
+  loading.value = false
+})
+
+// 菜单跟随当前店铺：选店/切换店铺后拉取该店菜单（后端无 storeId 时返回空列表）
+watch(() => store.currentStore?.storeId, async (newStoreId, oldStoreId) => {
+  if (newStoreId == null) {
+    store.setMenu({ products: [] })
+    return
+  }
+  if (newStoreId === oldStoreId) return
+  try {
+    const data = await menuApi.getMenu(newStoreId)
     store.setMenu(data)
-  } catch (e: any) {
+  } catch (e) {
     ElMessage.warning('无法加载菜单，请检查后端服务是否启动')
-  } finally {
-    loading.value = false
   }
 })
 
-function enterMain() {
+async function enterMain() {
   view.value = 'main'
+  // 登录后进入：本地无店铺时从数据库恢复偏好，无偏好才弹选店框
+  if (!store.currentStore && store.isLoggedIn) {
+    const restored = await store.restoreLastStore()
+    if (!restored) store.openStorePicker()
+  }
 }
 
 function goMember() {
@@ -69,7 +101,7 @@ function goMerchant() {
     <!-- Loading screen -->
     <div v-if="loading" class="loading-screen">
       <div class="loading-content">
-        <span class="brand-mark">F</span>
+        <img class="brand-mark" :src="fikaLogoMark" alt="Fika" />
         <p>FIKA · 咖啡与轻食</p>
         <small>正在连接...</small>
       </div>
@@ -122,13 +154,8 @@ body { margin: 0; }
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: #e06d35;
-  color: white;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 36px;
-  font-family: serif;
+  object-fit: cover;
+  display: block;
 }
 
 .merchant-entry {

@@ -6,18 +6,25 @@ import type { Product } from '@/api/types'
 const props = defineProps<{ product: Product }>()
 const store = useAppStore()
 
-const isFavorite = computed(() => store.getFavorites().has(props.product.code))
+const isFavorite = computed(() => store.isFavorite(props.product.code))
 
-function toggleFav(e: Event) {
+async function toggleFav(e: Event) {
   e.stopPropagation()
-  const set = store.getFavorites()
-  if (set.has(props.product.code)) set.delete(props.product.code)
-  else set.add(props.product.code)
-  store.saveFavorites(set)
+  // 收藏统一走服务端：登录按 userId、游客按 guestId（后端签发），全部入库隔离
+  await store.toggleFavorite(props.product)
 }
 
 function tempLabel(temp?: string) {
   return ({ HOT: '热饮', COLD: '冰饮', BOTH: '冷热', ROOM: '常温' })[temp || ''] || '现制'
+}
+
+/** 分类对应暖色渐变类（与商家端一致），替代生硬的灰色底 */
+function catClass(c?: string) {
+  if (c === 'coffee') return 'cat-coffee'
+  if (c === 'food') return 'cat-food'
+  if (c === 'dessert') return 'cat-dessert'
+  if (c === 'tea') return 'cat-tea'
+  return 'cat-ice'
 }
 
 function fmtMoney(v: number) {
@@ -35,6 +42,7 @@ function fmtMoney(v: number) {
       {{ isFavorite ? '♥' : '♡' }}
     </button>
     <img
+      :class="catClass(product.categoryCode)"
       :src="product.imageUrl"
       :alt="product.name"
       @error="($event.target as HTMLImageElement).style.opacity='0.3'"
@@ -63,7 +71,6 @@ function fmtMoney(v: number) {
   transition: .18s transform, .18s box-shadow;
   position: relative;
   width: 273px;
-  height: 247.33px;
 
   &:hover {
     transform: translateY(-3px);
@@ -92,11 +99,18 @@ function fmtMoney(v: number) {
 }
 
 img {
-  height: 133px;
+  height: 180px;
   width: 100%;
-  object-fit: cover;
-  background: #ddd;
+  object-fit: contain;
+  padding: 12px;
+  box-sizing: border-box;
   display: block;
+
+  &.cat-coffee { background: linear-gradient(135deg, #f2e5d0, #e6d0ac); }
+  &.cat-food { background: linear-gradient(135deg, #e7efe3, #d3e2cd); }
+  &.cat-dessert { background: linear-gradient(135deg, #fbe8df, #f3cfc0); }
+  &.cat-tea { background: linear-gradient(135deg, #e5ecf0, #cfe0e6); }
+  &.cat-ice { background: linear-gradient(135deg, #e4edf3, #cfe3ee); }
 }
 
 .product-card-info {

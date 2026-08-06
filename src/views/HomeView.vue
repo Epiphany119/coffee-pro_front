@@ -42,7 +42,7 @@ async function loadOrders() {
     if (store.isLoggedIn && store.currentUser?.id) {
       data = await orderApi.getUserOrders(store.currentUser.id)
     } else {
-      data = await orderApi.getGuestOrders(store.getGuestId())
+      data = await orderApi.getGuestOrders(await store.ensureGuestId())
     }
     store.setOrders(data || [])
   } catch (e) {
@@ -78,11 +78,13 @@ async function submitOrder() {
       items: store.cart.map(item => ({
         productCode: item.productCode,
         size: item.size,
+        customSize: item.customSize,
         condiments: item.condiments,
         quantity: item.quantity
       })),
       userId: store.isLoggedIn ? store.currentUser?.id ?? null : null,
-      guestId: store.isLoggedIn ? null : store.getGuestId(),
+      guestId: store.isLoggedIn ? null : await store.ensureGuestId(),
+      storeId: store.currentStore?.storeId ?? null,
       couponCode: store.selectedCoupon?.code || null,
       fulfillmentType: fulfillmentType.value,
       note: orderNote.value.trim() || undefined
@@ -147,7 +149,7 @@ function browseMenu() {
         <span>🥡</span>
         <div>
           <b>到店自取</b>
-          <small>静安店 · 预计 12 分钟</small>
+          <small>{{ store.currentStore?.name || '静安店' }} · 预计 12 分钟</small>
         </div>
       </button>
       <button
@@ -177,8 +179,8 @@ function browseMenu() {
       <CartPanel
         @submit="submitOrder"
         @clear="store.clearCart()"
-        @open-member="loadMemberDashboard(); showMemberModal = true"
-        @open-coupon="loadMemberDashboard(); showMemberModal = true"
+        @open-member="showMemberModal = true; loadMemberDashboard()"
+        @open-coupon="showMemberModal = true; loadMemberDashboard()"
       />
     </div>
 
@@ -195,12 +197,13 @@ function browseMenu() {
 
     <!-- Member modal -->
     <MemberModal
-      @close="showMemberModal = false"
+      :model-value="showMemberModal"
+      @update:model-value="showMemberModal = $event"
       @select-coupon="selectCoupon"
     />
 
     <!-- Floating robot assistant -->
-    <FloatingRobot />
+<!--    <FloatingRobot />-->
 
     <!-- Seat assignment & QR occupy -->
     <SeatPanel />

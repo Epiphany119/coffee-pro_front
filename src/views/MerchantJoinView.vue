@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { storeApi } from '@/api'
+import { ElMessage } from 'element-plus'
+import { merchantApi, storeApi } from '@/api'
 import type { StoreResponse } from '@/api/types'
 import { useMerchantStore } from '@/stores/merchant'
 
@@ -14,6 +15,17 @@ const mode = ref<'' | 'choose' | 'create'>('')
 const loading = ref(false)
 const stores = ref<StoreResponse[]>([])
 const joining = ref(false)
+
+/** 入驻现有店铺弹窗：选店后填资料，提交即激活该店预分配的商家编号并绑定 */
+const joinDialog = ref(false)
+const joinTarget = ref<StoreResponse | null>(null)
+const joinForm = reactive({
+  username: '',
+  password: '',
+  confirm: '',
+  nickname: '',
+  phone: ''
+})
 
 const createForm = reactive({
   name: '',
@@ -32,7 +44,7 @@ onMounted(async () => {
   // 已入驻商家不可再入驻（一商一店）
   if (mstore.hasJoined) {
     ElMessage.warning('您已入驻店铺，一个商家只能入驻一家店')
-    router.replace('/merchant')
+    router.replace('/merchant/dashboard')
     return
   }
   await loadAvailable()
@@ -49,22 +61,49 @@ async function loadAvailable() {
   }
 }
 
-async function confirmJoin(store: StoreResponse) {
-  try {
-    await ElMessageBox.confirm(
-      `确定入驻「${store.name}」吗？入驻后该店归您管理，一个商家只能入驻一家店。`,
-      '确认入驻',
-      { confirmButtonText: '确定入驻', cancelButtonText: '再想想', type: 'warning' }
-    )
-  } catch {
-    return // 用户取消
+function openJoinDialog(store: StoreResponse) {
+  joinTarget.value = store
+  joinForm.username = ''
+  joinForm.nickname = mstore.merchant?.nickname ?? ''
+  joinForm.phone = mstore.merchant?.phone ?? ''
+  joinForm.password = ''
+  joinForm.confirm = ''
+  joinDialog.value = true
+}
+
+async function confirmJoin() {
+  const store = joinTarget.value
+  if (!store) return
+  if (!joinForm.username.trim()) {
+    ElMessage.warning('请输入用户端账号的用户名')
+    return
+  }
+  if (joinForm.password.length < 6) {
+    ElMessage.warning('密码至少 6 位')
+    return
+  }
+  if (joinForm.password !== joinForm.confirm) {
+    ElMessage.warning('两次输入的密码不一致')
+    return
   }
   joining.value = true
   try {
-    const res = await storeApi.bind(store.storeId, mstore.merchant!.id)
-    mstore.setJoinedStore(res)
-    ElMessage.success(`已成功入驻「${res.name}」`)
-    router.replace('/merchant')
+    const res = await merchantApi.register({
+      username: joinForm.username.trim(),
+      password: joinForm.password,
+      nickname: joinForm.nickname || undefined,
+      phone: joinForm.phone || undefined,
+      storeId: store.storeId
+    })
+    if (!res.success) {
+      ElMessage.error(res.message || '入驻失败')
+      return
+    }
+    mstore.setMerchant(res)
+    mstore.setJoinedStore(store)
+    joinDialog.value = false
+    ElMessage.success(`已成功入驻「${store.name}」，商家编号：${res.merchantNo}`)
+    router.replace('/merchant/dashboard')
   } catch (e: any) {
     ElMessage.error(e.message || '入驻失败')
   } finally {
@@ -88,7 +127,7 @@ async function createStore() {
     })
     mstore.setJoinedStore(res)
     ElMessage.success(`「${res.name}」开店成功`)
-    router.replace('/merchant')
+    router.replace('/merchant/dashboard')
   } catch (e: any) {
     ElMessage.error(e.message || '开店失败')
   } finally {
@@ -97,7 +136,7 @@ async function createStore() {
 }
 
 function backHome() {
-  router.push('/merchant')
+  router.push('/merchant/dashboard')
 }
 </script>
 
@@ -105,7 +144,7 @@ function backHome() {
   <div class="m-join">
     <header class="m-topbar">
       <div class="m-brand">
-        <span class="brand-mark">F</span>
+        <img class="brand-mark" :src="fikaLogoMark" alt="Fika" />
         <div>
           <strong>入驻 FIKA</strong>
           <small>{{ mstore.merchant?.merchantNo }} · 请选择开店方式</small>
@@ -146,7 +185,7 @@ function backHome() {
             :key="s.storeId"
             class="store-card"
             :disabled="joining"
-            @click="confirmJoin(s)"
+            @click="openJoinDialog(s)"
           >
             <div class="store-card-name">{{ s.name }}</div>
             <div class="store-card-meta">
@@ -188,6 +227,43 @@ function backHome() {
           </button>
         </form>
       </div>
+
+      <!-- 入驻现有店铺：填资料激活该店预分配的商家编号 -->
+      <el-dialog
+        v-model="joinDialog"
+        :title="`入驻「${joinTarget?.name || ''}」`"
+        width="400px"
+        append-to-body
+      >
+        <p class="m-dialog-tip">
+          该店已预分配商家编号，提交资料后激活绑定。商家编号作为登录账号，请牢记。
+        </p>
+        <form class="m-join-form" @submit.prevent="confirmJoin">
+          <label>
+            <span>用户名（用户端账号）*</span>
+            <input v-model="joinForm.username" placeholder="请输入用户端注册的用户名" autocomplete="off" />
+          </label>
+          <label>
+            <span>昵称</span>
+            <input v-model="joinForm.nickname" placeholder="店铺老板称呼（选填）" autocomplete="off" />
+          </label>
+          <label>
+            <span>联系电话</span>
+            <input v-model="joinForm.phone" placeholder="联系电话（选填）" autocomplete="off" />
+          </label>
+          <label>
+            <span>密码（与用户端登录密码一致）*</span>
+            <input v-model="joinForm.password" type="password" placeholder="用户端账号的登录密码" />
+          </label>
+          <label>
+            <span>确认密码 *</span>
+            <input v-model="joinForm.confirm" type="password" placeholder="再次输入密码" />
+          </label>
+          <button class="primary-btn" type="submit" :disabled="joining">
+            {{ joining ? '入驻中...' : '确定入驻' }}
+          </button>
+        </form>
+      </el-dialog>
     </main>
   </div>
 </template>
@@ -215,13 +291,8 @@ function backHome() {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: var(--orange);
-    color: white;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    font-family: serif;
+    object-fit: cover;
+    display: inline-block;
   }
   strong { font-size: 17px; letter-spacing: .03em; display: block; }
   small { font-size: 12px; opacity: .65; }
@@ -286,6 +357,36 @@ function backHome() {
 }
 
 .m-empty { text-align: center; color: var(--muted); padding: 50px 0; }
+
+.m-dialog-tip {
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--soft-orange);
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.m-join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    span { font-size: 13px; color: var(--muted); }
+    input {
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      outline: none;
+      &:focus { border-color: var(--orange); }
+    }
+  }
+}
 
 .m-grid {
   display: grid;
