@@ -270,6 +270,10 @@ function pickImage(e: Event) {
 
 <template>
   <div class="m-menu">
+    <section class="menu-hero">
+      <div><p>MENU STUDIO · {{ filtered.length }} ITEMS</p><h2>让每一杯，都有被选中的理由。</h2><small>管理价格、图片、规格与上架状态，顾客端会同步更新。</small></div>
+      <div class="hero-actions" v-if="!templateMode"><button class="add-btn ghost" @click="openCategoryDialog">＋ 新建类目</button><button class="add-btn" @click="openCreate">＋ 新增商品</button></div>
+    </section>
     <!-- 顶部：分类 + 新增 -->
     <div class="menu-head">
       <div class="chips">
@@ -280,10 +284,6 @@ function pickImage(e: Event) {
           :class="{ active: activeCategory === c }"
           @click="activeCategory = c"
         >{{ c === '全部' ? '全部' : catName(c) }}</button>
-      </div>
-      <div class="head-actions" v-if="!templateMode">
-        <button class="add-btn ghost" @click="openCategoryDialog">＋ 新建类目</button>
-        <button class="add-btn" @click="openCreate">＋ 新增商品</button>
       </div>
     </div>
 
@@ -434,12 +434,13 @@ function pickImage(e: Event) {
 </template>
 
 <style scoped>
-.m-menu { display: flex; flex-direction: column; gap: 18px; }
+.m-menu { display: flex; flex-direction: column; gap: 18px; max-width: 1500px; }
+.menu-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:24px 28px;border:1px solid #eadfce;border-radius:22px;background:linear-gradient(110deg,#fffdf8,#f6ead8)}.menu-hero p{margin:0;color:var(--orange);font-size:10px;font-weight:800;letter-spacing:.13em}.menu-hero h2{margin:7px 0 5px;color:var(--pine);font-family:"DM Serif Display","Noto Sans SC",serif;font-size:27px;letter-spacing:-.025em}.menu-hero small{color:var(--muted);font-size:12px}.hero-actions{display:flex;gap:10px;flex-shrink:0}
 
 .menu-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 14px;
   flex-wrap: wrap;
 }
@@ -480,43 +481,34 @@ function pickImage(e: Event) {
   }
 }
 
-.head-actions {
-  display: flex;
-  gap: 10px;
-}
 
 /* 商品卡 */
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(390px, 1fr)); gap: 16px;
 }
 
 .product-card {
-  background: var(--paper);
-  border-radius: 16px;
-  overflow: hidden;
+  display:grid; grid-template-columns:132px minmax(0,1fr); min-height:178px;
+  background: var(--paper); border-radius: 18px; overflow: hidden;
   box-shadow: var(--shadow);
   border: 1px solid rgba(222, 219, 210, .4);
   transition: transform .15s, border-color .15s;
 
-  &:hover { border-color: var(--orange); transform: translateY(-2px); }
+  &:hover { border-color: var(--orange); transform: translateY(-4px); box-shadow:0 18px 30px rgba(47,66,50,.13); }
   &.off { opacity: .72; }
 }
 
 .product-cover {
-  height: 150px;
+  height: auto; min-height:178px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  background: linear-gradient(135deg, #f5ead8, #e9dcc3);
+  background: #f5f4f0;
 
-  &.cat-coffee { background: linear-gradient(135deg, #f2e5d0, #e6d0ac); }
-  &.cat-food { background: linear-gradient(135deg, #e7efe3, #d3e2cd); }
-  &.cat-dessert { background: linear-gradient(135deg, #fbe8df, #f3cfc0); }
-  &.cat-tea { background: linear-gradient(135deg, #e5ecf0, #cfe0e6); }
-  &.cat-ice { background: linear-gradient(135deg, #e4edf3, #cfe3ee); }
+  /* 不再使用分类色块；图片是第一视觉焦点。 */
+  &.cat-coffee, &.cat-food, &.cat-dessert, &.cat-tea, &.cat-ice { background: #f5f4f0; }
 
   .product-emoji { font-size: 40px; filter: drop-shadow(0 4px 8px rgba(0,0,0,.12)); }
 
@@ -526,9 +518,8 @@ function pickImage(e: Event) {
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: contain;
-    padding: 10px;
-    box-sizing: border-box;
+    object-fit: cover;
+    padding: 0;
     display: block;
   }
 
@@ -545,7 +536,7 @@ function pickImage(e: Event) {
   }
 }
 
-.product-body { padding: 14px 16px 16px; }
+.product-body { min-width:0; display:flex; flex-direction:column; padding:16px 17px 14px; }
 
 .product-name-row {
   display: flex;
@@ -554,8 +545,7 @@ function pickImage(e: Event) {
   gap: 8px;
 }
 
-.product-name { font-size: 15px; font-weight: 700; color: var(--pine); }
-.product-price { font-size: 14px; font-weight: 700; color: var(--orange); font-family: "SF Mono", Menlo, monospace; }
+.product-name { font-size: 16px; font-weight: 750; color: var(--pine); }.product-price { font-size: 16px; font-weight: 800; color: var(--orange); font-family: "SF Mono", Menlo, monospace; }
 
 .product-desc {
   font-size: 12px;
@@ -567,11 +557,11 @@ function pickImage(e: Event) {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  min-height: 36px;
+  min-height: 0;
 }
 
 .product-foot {
-  margin-top: 12px;
+  margin-top: auto; padding-top:11px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -722,4 +712,5 @@ function pickImage(e: Event) {
   &:hover { border-color: var(--orange); }
   &.active { border-color: var(--orange); background: #fdf0e2; box-shadow: 0 0 0 2px rgba(224, 109, 53, .15); }
 }
+@media(max-width:760px){.menu-hero{align-items:flex-start;flex-direction:column}.hero-actions{width:100%}.hero-actions .add-btn{flex:1}.product-grid{grid-template-columns:1fr}.product-card{grid-template-columns:112px minmax(0,1fr);min-height:164px}.product-cover{min-height:164px}}
 </style>

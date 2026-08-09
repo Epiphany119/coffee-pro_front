@@ -12,6 +12,17 @@ export interface AuthResponse {
   nickname: string | null
   totalSpent: number
   memberLevel: string | null
+  accessToken?: string | null
+}
+
+export interface StoreRecommendation {
+  storeId: number
+  code: string
+  name: string
+  address: string | null
+  latitude: number
+  longitude: number
+  distanceKm: number
 }
 
 export interface ForgotPasswordRequest {
@@ -87,6 +98,8 @@ export interface Product {
   allowedCondiments: string[]
   /** 定制规格单位（coffee/tea/ice → ml，dessert/food → g） */
   customUnit?: string
+  /** 凑单标记：1=凑单推荐品（配料/小料/小饮品/试吃品） */
+  topup?: number
 }
 
 export interface Category {
@@ -109,6 +122,36 @@ export interface MenuResponse {
   categories?: Category[]
 }
 
+export interface FlashSaleActivity {
+  id: number
+  productCode: string
+  title: string
+  flashPrice: number
+  availableStock: number
+  startAt: string
+  endAt: string
+  /** 当前是否仍可参与：售罄或活动结束后为 false，但仍保留卡片给用户查看。 */
+  claimable?: boolean
+  closeReason?: 'SOLD_OUT' | 'ENDED'
+}
+
+export interface FlashSaleClaim {
+  productCode: string
+  flashPrice: number
+  claimNo: string
+  message: string
+}
+
+export interface FlashSaleClaimRecord {
+  claimNo: string
+  status: 'CLAIMED' | 'USED' | 'EXPIRED'
+  claimedAt: string | number[]
+  expiresAt: string | number[]
+  productCode: string
+  title: string
+  flashPrice: number
+}
+
 export interface CartItemRequest {
   productCode: string
   size: string
@@ -125,23 +168,34 @@ export interface OrderRequest {
   /** 下单店铺 id（用户端当前店铺） */
   storeId: number | null
   couponCode?: string | null
+  /** 秒杀抢购码；仅允许单件单独结算，不可叠加优惠券 */
+  flashSaleClaimNo?: string | null
   fulfillmentType: string
   note?: string
 }
 
 export interface OrderItem {
-  productCode: string
+  productId?: number
+  /** 列表接口的 items 仅返回 productId/beverageName/quantity/unitPrice/originalUnitPrice/subtotal，下单响应才有完整字段 */
+  productCode?: string
   beverageName: string
-  categoryCode: string
-  size: string
-  condiments: string
+  categoryCode?: string
+  size?: string
+  condiments?: string
   quantity: number
+  /** 单件折后价 */
   unitPrice: number
+  /** 单件原价（折前，划线展示用；老数据可能为 null） */
+  originalUnitPrice?: number
+  /** 行小计（折后） */
   subtotal: number
 }
 
 export interface OrderResponse {
   id: number
+  orderId?: number
+  /** 支付单号（下单时由支付模块创建，供拉起支付） */
+  paymentNo?: string
   beverageName: string
   originalPrice: number
   finalPrice: number
@@ -161,6 +215,8 @@ export interface OrderResponse {
 
 export interface OrderRecord {
   id: number
+  /** 详细订单号：YYMMDD-商家6位-类目3位-店铺当日顺序3位（如 260807-687257-001-001） */
+  orderNo?: string
   storeId?: number
   beverageName: string
   size: string
@@ -178,6 +234,51 @@ export interface OrderRecord {
   fulfillmentType?: string
   note?: string
   estimatedReadyTime?: string
+  /** 订单明细（order_item），批量订单 = 1 单 N 明细，每行是购物车行级 */
+  items?: OrderItem[]
+}
+
+/** 售后单 */
+export interface AfterSaleRecord {
+  id: number
+  /** 关联订单 id（取餐号） */
+  orderId: number
+  /** 订单详细订单号 */
+  orderNo?: string
+  /** 订单商品名快照 */
+  orderName?: string
+  /** 售后类型：REFUND 退款 / REMAKE 重做 / EXCHANGE 换货 / OTHER 其他 */
+  type: string
+  reason: string
+  /** 状态：PENDING 待处理 / PROCESSING 处理中 / RESOLVED 已解决 / REJECTED 已拒绝 / CLOSED 已关闭 */
+  status: string
+  /** 商家处理备注 */
+  handlerNote?: string | null
+  createdAt: string
+  updatedAt?: string
+}
+
+/** 订单反馈 */
+export interface FeedbackRecord {
+  id: number
+  orderId: number
+  /** 反馈归属商品 id（订单第一个明细的商品） */
+  productId?: number
+  orderNo?: string
+  orderName?: string
+  /** 反馈用户名（来自 coffee_user.username） */
+  username?: string
+  content: string
+  rating?: number | null
+  createdAt: string
+}
+
+export const AFTER_SALE_TYPE_LABELS: Record<string, string> = {
+  REFUND: '退款', REMAKE: '重做', EXCHANGE: '换货', OTHER: '其他'
+}
+
+export const AFTER_SALE_STATUS_LABELS: Record<string, string> = {
+  PENDING: '待处理', PROCESSING: '处理中', RESOLVED: '已解决', REJECTED: '已拒绝', CLOSED: '已关闭'
 }
 
 export interface Coupon {
@@ -302,10 +403,63 @@ export const CATEGORY_META: Record<string, [string, string]> = {
 }
 
 export const STATUS_LABELS: Record<string, string> = {
+  UNPAID:    '待支付',
   PENDING:   '待制作',
   PREPARING:  '制作中',
   COMPLETED:  '已完成',
   CANCELED:   '已取消'
+}
+
+// ============================================================
+// 支付模块
+// ============================================================
+
+/** 支付渠道 */
+export type PayChannel = 'WECHAT' | 'ALIPAY' | 'BANK' | 'MOCK'
+
+export const PAY_CHANNEL_LABELS: Record<string, string> = {
+  WECHAT: '微信支付',
+  ALIPAY: '支付宝',
+  BANK:   '银行卡支付',
+  MOCK:   '模拟支付'
+}
+
+export const PAY_STATUS_LABELS: Record<string, string> = {
+  PENDING:  '待支付',
+  PAID:     '已支付',
+  FAILED:   '支付失败',
+  CLOSED:   '已关闭',
+  REFUNDED: '已退款'
+}
+
+export interface PaymentRecord {
+  paymentId: number
+  paymentNo: string
+  orderId: number
+  userId: number | null
+  channel: PayChannel | null
+  amount: number
+  status: string
+  statusDesc: string
+  transactionNo: string | null
+  paidAt: string | null
+  createdAt: string
+}
+
+/** 凑单进度（购物袋满减进度条数据） */
+export interface TopupProgress {
+  /** 是否已满足全部满减门槛（true 时无需凑单） */
+  reached: boolean
+  /** 目标门槛金额（最近一张未达成的满减券门槛） */
+  threshold: number
+  /** 还差金额 = threshold - amount */
+  gap: number
+  /** 目标券名（如"下午茶立减 ¥8"） */
+  couponName: string
+  /** 目标券编码（固定权益券 FIKA8/SWEET12/BEAN15） */
+  couponCode: string
+  /** 目标券面额 */
+  discount: number
 }
 
 // ============================================================
@@ -348,6 +502,7 @@ export interface MerchantResponse {
   /** 绑定的店名（入驻后非空） */
   storeName?: string | null
   status: MerchantStatus
+  accessToken?: string | null
 }
 
 export interface MerchantRegisterRequest {
@@ -390,12 +545,15 @@ export interface CategoryRequest {
   icon?: string
 }
 
-/** 商家端工作台数据（GET /api/merchant/{id}/dashboard） */
+/** 商家端工作台数据（GET /api/merchant/{id}/dashboard?range=7d|14d|28d|12w） */
 export interface MerchantDashboard {
   store: StoreResponse
   todayRevenue: number
   todayOrders: number
   pendingOrders: number
-  weekSales: { day: string; amount: number }[]
+  /** 营业额柱状图序列：day=YYYYMMDD（12w 为周起日期），缺日/周已补 0 */
+  sales: { day: string; amount: number }[]
+  /** 近 7 天已完成订单热销榜 */
+  hotProducts: { name: string; quantity: number; amount: number }[]
   recentOrders: OrderRecord[]
 }

@@ -2,9 +2,14 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
-import { orderApi, favoriteApi, membershipApi } from '@/api'
+import { orderApi, favoriteApi, membershipApi, afterSaleApi, notificationApi, flashSaleApi } from '@/api'
 import { STATUS_LABELS, CATEGORY_META, sizeText } from '@/api/types'
-import type { Product, RedeemItem, Voucher } from '@/api/types'
+import type { Product, RedeemItem, Voucher, FeedbackRecord, FlashSaleClaimRecord } from '@/api/types'
+import OrderDetailDialog from '@/components/OrderDetailDialog.vue'
+import AfterSaleDialog from '@/components/AfterSaleDialog.vue'
+import FeedbackDialog from '@/components/FeedbackDialog.vue'
+import FeedbackRecordDialog from '@/components/FeedbackRecordDialog.vue'
+import PayDialog from '@/components/PayDialog.vue'
 
 const store = useAppStore()
 
@@ -12,7 +17,14 @@ const emit = defineEmits<{
   'back': []
 }>()
 
-const activeTab = ref<'orders' | 'favorites' | 'points'>('orders')
+const activeTab = ref<'orders' | 'favorites' | 'points' | 'notifications' | 'flashClaims'>('orders')
+const notifications = ref<any[]>([])
+const flashClaims = ref<FlashSaleClaimRecord[]>([])
+
+function changeTab(tab: typeof activeTab.value) {
+  activeTab.value = tab
+  requestAnimationFrame(() => document.querySelector('.tab-nav')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
 
 onMounted(async () => {
   if (store.isLoggedIn && store.currentUser?.id) {
@@ -20,8 +32,20 @@ onMounted(async () => {
     await loadFavorites()
     await loadMemberDashboard()
     await loadMembership()
+    await loadFeedbacks()
+    await loadNotifications()
+    await loadFlashClaims()
   }
 })
+async function loadNotifications() { if (store.currentUser?.id) notifications.value = await notificationApi.getUserNotifications(store.currentUser.id) || [] }
+async function loadFlashClaims() {
+  if (!store.currentUser?.id) return
+  try { flashClaims.value = await flashSaleApi.claims({ userId: store.currentUser.id }) || [] }
+  catch (e) { console.warn('flash-sale-claims', e) }
+}
+function flashStatusText(status: FlashSaleClaimRecord['status']) {
+  return ({ CLAIMED: '已抢到', USED: '已核销', EXPIRED: '已过期' } as const)[status]
+}
 
 // --- Membership（会员卡积分 / 卡券包 / 兑换） ---
 /** 积分以会员卡账本为准（兑换扣减即时同步），未开卡自动开卡 */
@@ -95,10 +119,81 @@ const filteredOrders = computed(() => {
   return orders.value.filter(o => o.status === orderFilter.value)
 })
 
+/** 订单存档详情弹窗（查看详细订单号） */
+const detailVisible = ref(false)
+const detailOrder = ref<any>(null)
+
+function openDetail(o: any) {
+  detailOrder.value = o
+  detailVisible.value = true
+}
+
+/** 反馈建议弹窗（仅已完成订单） */
+const feedbackVisible = ref(false)
+const feedbackOrder = ref<any>(null)
+
+function openFeedback(o: any) {
+  feedbackOrder.value = o
+  feedbackVisible.value = true
+}
+
+// --- 反馈记录（规则：反馈挂在订单第一个品下，点击第一个品可查看） ---
+const feedbackMap = ref<Record<number, FeedbackRecord[]>>({})
+const recordVisible = ref(false)
+const recordOrder = ref<any>(null)
+
+async function loadFeedbacks() {
+  if (!store.currentUser?.id) return
+  try {
+    const list = (await afterSaleApi.getMyFeedbacks(store.currentUser.id)) || []
+    const map: Record<number, FeedbackRecord[]> = {}
+    for (const f of list) {
+      ;(map[f.orderId] ||= []).push(f)
+    }
+    feedbackMap.value = map
+  } catch (e) {
+    console.warn('feedbacks', e)
+  }
+}
+
+/** 该订单的反馈记录（可能有多条） */
+function feedbacksByOrder(orderId: number): FeedbackRecord[] {
+  return feedbackMap.value[orderId] || []
+}
+
+/** 点击订单第一个品：查看该订单的反馈记录 */
+function openFeedbackRecord(o: any) {
+  recordOrder.value = o
+  recordVisible.value = true
+}
+
+/** 售后申请弹窗（仅已完成订单） */
+const afterSaleVisible = ref(false)
+const afterSaleOrder = ref<any>(null)
+
+function openAfterSale(o: any) {
+  afterSaleOrder.value = o
+  afterSaleVisible.value = true
+}
+
+/** 支付弹窗（待支付订单"去支付"） */
+const payVisible = ref(false)
+const payOrder = ref<any>(null)
+
+function openPay(o: any) {
+  payOrder.value = o
+  payVisible.value = true
+}
+
+/** 支付成功：刷新订单列表（UNPAID → PENDING） */
+async function onPaid() {
+  await loadOrders()
+}
+
 async function cancelOrder(id: number) {
   if (!confirm('确定取消这笔订单吗？')) return
   try {
-    await orderApi.cancelUserOrder(id, 'cancel')
+    await orderApi.cancelUserOrder(id, 'cancel', store.currentUser!.id!)
     ElMessage.success('订单已取消')
     await loadOrders()
     // 取消后同步刷新：累计消费/等级（已完成订单取消会扣回）+ 积分账本
@@ -245,16 +340,41 @@ function handleLogout() {
     <!-- Tab nav -->
     <div class="tab-nav">
       <div class="tab-nav-inner">
-        <button :class="{ active: activeTab === 'orders' }" @click="activeTab = 'orders'">
+        <button type="button" :class="{ active: activeTab === 'orders' }" @click.stop="changeTab('orders')">
           我的订单
         </button>
-        <button :class="{ active: activeTab === 'favorites' }" @click="activeTab = 'favorites'">
+        <button type="button" :class="{ active: activeTab === 'favorites' }" @click.stop="changeTab('favorites')">
           我的收藏
         </button>
-        <button :class="{ active: activeTab === 'points' }" @click="activeTab = 'points'">
+        <button type="button" :class="{ active: activeTab === 'points' }" @click.stop="changeTab('points')">
           积分权益
         </button>
+        <button type="button" :class="{ active: activeTab === 'notifications' }" @click.stop="changeTab('notifications')">
+          消息 <i v-if="notifications.length">{{ notifications.length }}</i>
+        </button>
+        <button type="button" :class="{ active: activeTab === 'flashClaims' }" @click.stop="changeTab('flashClaims')">
+          我的抢购 <i v-if="flashClaims.filter(c => c.status === 'CLAIMED').length">{{ flashClaims.filter(c => c.status === 'CLAIMED').length }}</i>
+        </button>
       </div>
+    </div>
+
+    <div v-if="activeTab === 'flashClaims'" class="tab-content flash-claims-inner">
+      <div v-if="flashClaims.length" class="flash-claim-list">
+        <article v-for="claim in flashClaims" :key="claim.claimNo" class="flash-claim-card" :class="claim.status.toLowerCase()">
+          <div><span class="claim-kicker">限时抢购资格</span><h3>{{ claim.title }}</h3><p>抢购码：<code :class="{ 'expired-code': claim.status === 'EXPIRED' }">{{ claim.claimNo }}</code></p><small>抢购于 {{ formatTime(claim.claimedAt) }} · {{ claim.status === 'CLAIMED' ? `有效至 ${formatTime(claim.expiresAt)}` : flashStatusText(claim.status) }}</small></div>
+          <div class="claim-side"><b>¥{{ Number(claim.flashPrice).toFixed(2) }}</b><span>{{ flashStatusText(claim.status) }}</span></div>
+        </article>
+      </div>
+      <div v-else class="empty-state">还没有抢购资格，去首页看看限时好价吧。</div>
+    </div>
+
+    <div v-if="activeTab === 'notifications'" class="tab-content notifications-inner">
+      <div v-if="notifications.length" class="notification-list">
+        <article v-for="n in notifications" :key="n.id" class="notification-card">
+          <span class="notification-mark">✦</span><div><b>{{ n.title }}</b><p>{{ n.content }}</p><small>{{ formatTime(n.createdAt) }}</small></div>
+        </article>
+      </div>
+      <div v-else class="empty-state">暂时没有新消息。</div>
     </div>
 
     <!-- Tab: Orders -->
@@ -262,7 +382,7 @@ function handleLogout() {
       <div class="orders-inner">
         <div class="filter-row">
           <el-tag
-            v-for="f in ['all', 'PENDING', 'PREPARING', 'COMPLETED', 'CANCELED']"
+            v-for="f in ['all', 'UNPAID', 'PENDING', 'PREPARING', 'COMPLETED', 'CANCELED']"
             :key="f"
             :type="orderFilter === f ? 'dark' : 'info'"
             class="filter-chip"
@@ -273,14 +393,26 @@ function handleLogout() {
         </div>
 
         <div v-if="filteredOrders.length" class="order-grid">
-          <div v-for="o in filteredOrders" :key="o.id" class="order-card" :class="{ canceled: o.status === 'CANCELED' }">
+          <div v-for="o in filteredOrders" :key="o.id" class="order-card" :class="{ canceled: o.status === 'CANCELED' }" @click="openDetail(o)">
             <div class="order-card-top">
               <span>#{{ o.id }}</span>
-              <el-tag size="small" :type="o.status === 'COMPLETED' ? 'success' : o.status === 'CANCELED' ? 'danger' : o.status === 'PREPARING' ? '' : 'warning'">
+              <el-tag size="small" :type="o.status === 'COMPLETED' ? 'success' : o.status === 'CANCELED' ? 'danger' : o.status === 'UNPAID' ? 'danger' : o.status === 'PREPARING' ? '' : 'warning'">
                 {{ STATUS_LABELS[o.status] || o.status }}
               </el-tag>
             </div>
-            <p class="order-name">{{ o.beverageName }}</p>
+            <div class="order-name">
+              <!-- 批量订单：逐个品展示，反馈记录挂在第一个品下（点击第一个品可查看） -->
+              <template v-if="o.items && o.items.length">
+                <span v-for="(it, idx) in o.items" :key="idx" class="order-item" :class="{ first: idx === 0 }">
+                  <template v-if="idx === 0">
+                    <b class="item-click" title="点击查看反馈记录" @click.stop="openFeedbackRecord(o)">{{ it.beverageName }} ×{{ it.quantity }}</b>
+                    <span v-if="feedbacksByOrder(o.id).length" class="fb-tag" @click.stop="openFeedbackRecord(o)">★ 反馈</span>
+                  </template>
+                  <template v-else>{{ it.beverageName }} ×{{ it.quantity }}</template>
+                </span>
+              </template>
+              <span v-else>{{ o.beverageName }}</span>
+            </div>
             <p class="order-meta">
               {{ sizeText(o) }} · {{ o.condiments || '' }}
               · {{ formatTime(o.createdAt) }}
@@ -295,12 +427,22 @@ function handleLogout() {
                 <span v-else class="price-line saved none">已省 ¥0.00</span>
               </div>
               <el-button
-                v-if="o.status === 'PENDING' || o.status === 'COMPLETED'"
+                v-if="o.status === 'UNPAID'"
+                size="small"
+                type="primary"
+                @click.stop="openPay(o)"
+              >去支付</el-button>
+              <el-button
+                v-if="o.status === 'UNPAID' || o.status === 'PENDING'"
                 text
                 type="danger"
                 size="small"
-                @click="cancelOrder(o.id)"
+                @click.stop="cancelOrder(o.id)"
               >取消订单</el-button>
+              <template v-if="o.status === 'COMPLETED'">
+                <el-button text size="small" @click.stop="openFeedback(o)">反馈建议</el-button>
+                <el-button text size="small" @click.stop="openAfterSale(o)">售后</el-button>
+              </template>
             </div>
           </div>
         </div>
@@ -385,6 +527,17 @@ function handleLogout() {
         <div v-else class="empty-state">暂无可用优惠券</div>
       </div>
     </div>
+
+    <!-- 订单存档详情弹窗 -->
+    <OrderDetailDialog v-model="detailVisible" :order="detailOrder" />
+    <!-- 反馈建议弹窗 -->
+    <FeedbackDialog v-model="feedbackVisible" :order="feedbackOrder" />
+    <!-- 反馈记录查看弹窗（点击订单第一个品打开） -->
+    <FeedbackRecordDialog v-model="recordVisible" :order="recordOrder" :records="feedbacksByOrder(recordOrder?.id || 0)" />
+    <!-- 售后申请弹窗 -->
+    <AfterSaleDialog v-model="afterSaleVisible" :order="afterSaleOrder" />
+    <!-- 支付弹窗 -->
+    <PayDialog v-model="payVisible" :order-id="payOrder?.id" @paid="onPaid" />
   </div>
 </template>
 
@@ -539,7 +692,8 @@ function handleLogout() {
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 200;
+  pointer-events: auto;
 }
 
 .tab-nav-inner {
@@ -549,6 +703,9 @@ function handleLogout() {
 }
 
 .tab-nav-inner button {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   flex: 1;
   background: none;
   border: none;
@@ -570,6 +727,7 @@ function handleLogout() {
 .tab-content {
   padding: 28px 0 70px;
 }
+.notifications-inner,.flash-claims-inner{width:min(1240px,calc(100% - 40px));max-width:900px;margin-left:auto;margin-right:auto}.notification-list,.flash-claim-list{display:grid;gap:10px}.notification-card{display:flex;gap:13px;padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:var(--paper)}.notification-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;color:var(--orange);background:#fff0df}.notification-card b{font-size:14px}.notification-card p{margin:5px 0;color:var(--muted);font-size:13px}.notification-card small{color:#a5aaa4;font-size:11px}.tab-nav-inner i{font-style:normal;font-size:10px;margin-left:3px;color:var(--orange)}.flash-claim-card{display:flex;justify-content:space-between;gap:18px;padding:18px 20px;border:1px solid var(--line);border-left:4px solid var(--orange);border-radius:16px;background:var(--paper)}.flash-claim-card.used{border-left-color:#4a9b67}.flash-claim-card.expired{border-left-color:#a5aaa4;opacity:.72;background:#f2f3f1;filter:grayscale(.65)}.claim-kicker{color:var(--orange);font-size:11px;font-weight:700;letter-spacing:.08em}.flash-claim-card h3{margin:6px 0;font-size:16px}.flash-claim-card p{margin:0 0 5px;color:var(--muted);font-size:13px}.flash-claim-card code{padding:2px 6px;border-radius:5px;background:#fff0df;color:#a95024}.flash-claim-card code.expired-code{text-decoration:line-through;background:#e5e7e4;color:#8a908a}.flash-claim-card small{color:#8a928a;font-size:11px}.claim-side{display:grid;align-content:center;justify-items:end;gap:8px;white-space:nowrap}.claim-side b{color:var(--orange);font-size:18px}.claim-side span{padding:3px 8px;border-radius:999px;background:#fff0df;color:#b55f32;font-size:11px}.used .claim-side span{background:#e5f5e9;color:#368150}.expired .claim-side span{background:#edf0ed;color:#747b75}
 
 .orders-inner, .favorites-inner, .points-inner {
   width: min(1240px, calc(100% - 40px));
@@ -607,11 +765,24 @@ function handleLogout() {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 14px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
 
   /* 已取消订单：整体置灰（同店铺打烊样式） */
   &.canceled {
     opacity: 0.45;
     background: #f4f4f2;
+    cursor: default;
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
   }
 }
 
@@ -627,6 +798,46 @@ function handleLogout() {
   font-weight: normal;
   margin: 12px 0 5px;
   font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.order-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+}
+
+.order-item .item-click {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--pine);
+  border-bottom: 1px dashed rgba(20, 83, 45, 0.35);
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--orange);
+    border-bottom-color: var(--orange);
+  }
+}
+
+.fb-tag {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #f5a623, #f26d21);
+  border-radius: 20px;
+  padding: 1px 8px;
+  line-height: 16px;
+  box-shadow: 0 1px 3px rgba(242, 109, 33, 0.35);
+  transition: transform 0.15s;
+
+  &:hover {
+    transform: scale(1.05);
+  }
 }
 
 .order-meta {

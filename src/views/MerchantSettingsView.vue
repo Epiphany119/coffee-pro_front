@@ -2,9 +2,11 @@
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useMerchantStore } from '@/stores/merchant'
-import { storeApi } from '@/api'
+import { merchantApi, storeApi } from '@/api'
+import { useRouter } from 'vue-router'
 
 const mstore = useMerchantStore()
+const router = useRouter()
 
 /** ============ 店铺资料（保存到后端） ============ */
 const storeForm = reactive({
@@ -54,13 +56,20 @@ const merchantForm = reactive({
   phone: mstore.merchant?.phone ?? ''
 })
 
-function saveMerchant() {
-  ElMessage.info('账号资料修改暂未开通，敬请期待')
+async function saveMerchant() {
+  if (!mstore.merchant?.id) return
+  try {
+    const updated = await merchantApi.updateProfile(mstore.merchant.id, merchantForm)
+    mstore.setMerchant({ ...mstore.merchant, ...updated, accessToken: mstore.merchant.accessToken })
+    ElMessage.success('账号资料已保存')
+  } catch (e: any) {
+    ElMessage.error(e.message || '保存失败')
+  }
 }
 
 const pwdForm = reactive({ oldPwd: '', newPwd: '', confirmPwd: '' })
 
-function savePwd() {
+async function savePwd() {
   if (!pwdForm.oldPwd || !pwdForm.newPwd) {
     ElMessage.warning('请填写完整密码信息')
     return
@@ -69,19 +78,40 @@ function savePwd() {
     ElMessage.warning('两次输入的新密码不一致')
     return
   }
-  ElMessage.info('密码修改暂未开通，敬请期待')
-  pwdForm.oldPwd = ''
-  pwdForm.newPwd = ''
-  pwdForm.confirmPwd = ''
+  if (pwdForm.newPwd.length < 8 || !/[A-Za-z]/.test(pwdForm.newPwd) || !/\d/.test(pwdForm.newPwd)) {
+    ElMessage.warning('新密码至少 8 位，且须包含字母和数字')
+    return
+  }
+  if (!mstore.merchant?.id) return
+  try {
+    await merchantApi.changePassword(mstore.merchant.id, { oldPassword: pwdForm.oldPwd, newPassword: pwdForm.newPwd })
+    pwdForm.oldPwd = ''; pwdForm.newPwd = ''; pwdForm.confirmPwd = ''
+    mstore.clear()
+    ElMessage.success('密码已修改，请使用新密码重新登录')
+    router.replace('/merchant/auth')
+  } catch (e: any) {
+    ElMessage.error(e.message || '密码修改失败')
+  }
 }
 </script>
 
 <template>
   <div class="m-settings">
+    <section class="settings-hero">
+      <div>
+        <p class="eyebrow">FIKA STORE CONTROL</p>
+        <h2>把门店经营，调成你喜欢的节奏。</h2>
+        <p>维护门店对外信息、营业状态和账号安全；每一次保存都会立即同步到顾客端。</p>
+      </div>
+      <div class="hero-state" :class="mstore.joinedStore?.status === 'OPEN' ? 'open' : 'closed'">
+        <span class="state-dot"></span>
+        <div><b>{{ mstore.joinedStore?.status === 'OPEN' ? '正在营业' : '今日已打烊' }}</b><small>{{ mstore.joinedStore?.businessHours || '营业时间待设置' }}</small></div>
+      </div>
+    </section>
     <div class="settings-grid">
       <!-- 营业状态 -->
       <section class="panel">
-        <div class="panel-title">营业状态</div>
+        <div class="panel-title"><span>01</span> 营业状态</div>
         <div class="status-row">
           <div class="status-info">
             <div class="status-name" :class="mstore.joinedStore?.status === 'OPEN' ? 'on' : 'off'">
@@ -99,7 +129,7 @@ function savePwd() {
 
       <!-- 店铺资料 -->
       <section class="panel">
-        <div class="panel-title">店铺资料</div>
+        <div class="panel-title"><span>02</span> 门店资料</div>
         <div class="form-rows">
           <div class="f-row">
             <label>店铺编号</label>
@@ -127,7 +157,7 @@ function savePwd() {
 
       <!-- 商家账号 -->
       <section class="panel">
-        <div class="panel-title">商家账号</div>
+        <div class="panel-title"><span>03</span> 商家账号</div>
         <div class="form-rows">
           <div class="f-row">
             <label>商家编号</label>
@@ -147,7 +177,7 @@ function savePwd() {
 
       <!-- 修改密码 -->
       <section class="panel">
-        <div class="panel-title">修改密码</div>
+        <div class="panel-title"><span>04</span> 账号安全</div>
         <div class="form-rows">
           <div class="f-row">
             <label>当前密码</label>
@@ -166,35 +196,46 @@ function savePwd() {
       </section>
     </div>
 
-    <p class="mock-tip">* 当前页面为示例功能，用于确认界面设计，后续接入真实接口</p>
   </div>
 </template>
 
 <style scoped>
-.m-settings { display: flex; flex-direction: column; gap: 18px; }
+.m-settings { display: flex; flex-direction: column; gap: 22px; max-width: 1320px; }
+
+.settings-hero { min-height: 156px; box-sizing: border-box; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:28px 32px; border-radius:24px; color:#fffdf7; background:radial-gradient(circle at 85% 10%,rgba(255,203,146,.28),transparent 21%),linear-gradient(120deg,#103e30,#1d6a51); box-shadow:0 18px 38px rgba(23,76,59,.15); }
+.eyebrow { margin:0 0 8px; color:#ffc18c; font-size:10px; font-weight:800; letter-spacing:.15em; }
+.settings-hero h2 { margin:0; font-family:"DM Serif Display","Noto Sans SC",serif; font-size:30px; letter-spacing:-.03em; }
+.settings-hero > div > p:last-child { margin:8px 0 0; color:rgba(255,255,255,.7); font-size:13px; }
+.hero-state { min-width:170px; display:flex; align-items:center; gap:10px; padding:14px 16px; border:1px solid rgba(255,255,255,.18); border-radius:16px; background:rgba(255,255,255,.1); }
+.hero-state b,.hero-state small { display:block; }.hero-state b{font-size:14px}.hero-state small{margin-top:3px;color:rgba(255,255,255,.64);font-size:11px}.state-dot{width:10px;height:10px;border-radius:50%;background:#66d497;box-shadow:0 0 0 5px rgba(102,212,151,.14)}.hero-state.closed .state-dot{background:#ffb07e}
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: 16px;
+  grid-template-columns: .82fr 1.08fr .82fr;
+  grid-template-rows: auto auto;
+  gap: 18px;
   align-items: start;
 }
 
+/* 三列填满：状态/安全形成左侧控制列，门店与账号资料贯穿右侧高度，避免网格断层。 */
+.panel:nth-child(1) { grid-column: 1; grid-row: 1; }
+.panel:nth-child(4) { grid-column: 1; grid-row: 2; }
+.panel:nth-child(2) { grid-column: 2; grid-row: 1 / span 2; align-self: stretch; }
+.panel:nth-child(3) { grid-column: 3; grid-row: 1 / span 2; align-self: stretch; }
+
 .panel {
   background: var(--paper);
-  border-radius: 16px;
-  padding: 20px 22px;
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(222, 219, 210, .4);
+  border-radius: 20px; padding: 23px 24px; box-shadow: 0 12px 28px rgba(32,55,45,.07); border: 1px solid rgba(222, 219, 210, .65);
 }
 
 .panel-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--pine);
   margin-bottom: 16px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
+  span { display:inline-grid; place-items:center; width:23px; height:23px; margin-right:7px; border-radius:8px; background:#e9f1eb; color:var(--pine); font-size:10px; }
 }
 
 /* 营业状态 */
@@ -253,11 +294,12 @@ function savePwd() {
   font-size: 13.5px;
   font-weight: 600;
   padding: 10px 26px;
-  border-radius: 10px;
+  border-radius: 12px;
   letter-spacing: .04em;
   transition: opacity .18s;
   &:hover { opacity: .88; }
 }
 
 .mock-tip { text-align: center; font-size: 11.5px; color: #b0a89a; }
+@media (max-width:1200px){.settings-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto}.panel:nth-child(n){grid-column:auto;grid-row:auto}}@media(max-width:720px){.settings-hero{padding:24px;align-items:flex-start;flex-direction:column}.settings-grid{grid-template-columns:1fr}.f-row{align-items:flex-start;flex-direction:column;gap:6px}.f-row label{width:auto}.settings-hero h2{font-size:25px}}
 </style>

@@ -2,7 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { CONDIMENTS, SIZE_LABELS, SIZE_EXTRAS, customUnitOf } from '@/api/types'
-import type { Product } from '@/api/types'
+import type { Product, FeedbackRecord } from '@/api/types'
+import { afterSaleApi } from '@/api'
 
 const props = defineProps<{
   product: Product | null
@@ -19,6 +20,20 @@ const selectedSize = ref('MEDIUM')
 const customSize = ref<number | undefined>(undefined)
 const selectedCondiments = ref(new Set<string>())
 
+/** 反馈列表（按 productId 拉的） */
+const feedbacks = ref<FeedbackRecord[]>([])
+const feedbackLoading = ref(false)
+
+function loadFeedbacks(productId: number | undefined) {
+  feedbacks.value = []
+  if (!productId) return
+  feedbackLoading.value = true
+  afterSaleApi.getProductFeedbacks(productId)
+    .then((list) => { feedbacks.value = list || [] })
+    .catch(() => { feedbacks.value = [] })
+    .finally(() => { feedbackLoading.value = false })
+}
+
 /** 分类对应暖色渐变类（与商家端一致） */
 function catClass(c?: string) {
   if (c === 'coffee') return 'cat-coffee'
@@ -33,6 +48,7 @@ watch(() => props.product, (p) => {
     selectedSize.value = 'MEDIUM'
     customSize.value = undefined
     selectedCondiments.value = new Set()
+    loadFeedbacks(p.id)
   }
 })
 
@@ -93,6 +109,15 @@ function addToCart() {
 
 function fmtMoney(v: number) {
   return `¥${Number(v || 0).toFixed(2)}`
+}
+
+/** 反馈时间格式化 */
+function formatTime(value?: string | number[]) {
+  if (!value) return '-'
+  if (Array.isArray(value)) {
+    return `${value[0]}-${String(value[1]).padStart(2, '0')}-${String(value[2]).padStart(2, '0')} ${String(value[3] || 0).padStart(2, '0')}:${String(value[4] || 0).padStart(2, '0')}`
+  }
+  return String(value).replace('T', ' ').slice(0, 16)
 }
 </script>
 
@@ -173,6 +198,21 @@ function fmtMoney(v: number) {
               {{ CONDIMENTS[code]?.name || code }} +{{ fmtMoney(CONDIMENTS[code]?.price || 0) }}
             </el-tag>
           </div>
+        </div>
+
+        <!-- 顾客反馈（按商品展示） -->
+        <div class="config-group">
+          <h3>顾客反馈 <small>{{ feedbackLoading ? '加载中…' : `共 ${feedbacks.length} 条` }}</small></h3>
+          <template v-if="feedbacks.length">
+            <div v-for="r in feedbacks" :key="r.id" class="fb-item">
+              <div class="fb-top">
+                <span class="fb-name">{{ r.username || '匿名用户' }}</span>
+                <span class="fb-time">{{ formatTime(r.createdAt) }}</span>
+              </div>
+              <p class="fb-content">{{ r.content }}</p>
+            </div>
+          </template>
+          <div v-else-if="!feedbackLoading" class="fb-empty">该商品暂无反馈</div>
         </div>
 
         <div class="config-price">
@@ -280,6 +320,44 @@ function fmtMoney(v: number) {
   color: var(--muted);
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+.fb-item {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.fb-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  .fb-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .fb-time {
+    font-size: 11px;
+    color: var(--muted);
+  }
+}
+
+.fb-content {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.fb-empty {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  padding: 6px 0;
 }
 
 .config-price {

@@ -123,6 +123,19 @@ async function doLogin(){
 
     store.setUser(data)
 
+    // 登录后请求一次浏览器定位授权，并将中国大陆范围内的位置交给推荐模块。
+    if (navigator.geolocation && data.id != null) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          import('@/api').then(({ locationApi }) => locationApi.saveUserLocation(
+            data.id!, position.coords.latitude, position.coords.longitude
+          )).catch(() => {})
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
+      )
+    }
+
     ElMessage.success(
         '登录成功，欢迎回来'
     )

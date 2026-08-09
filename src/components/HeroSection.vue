@@ -1,26 +1,29 @@
 <script setup lang="ts">
-const emit = defineEmits<{ browse: [] }>()
+import type { Product } from '@/api/types'
+
+defineProps<{ featuredProduct?: Product | null }>()
+const emit = defineEmits<{ browse: []; featured: [] }>()
 </script>
 
 <template>
   <section class="hero">
     <div class="hero-copy">
-      <p class="eyebrow">TODAY'S PICK</p>
-      <h1>把忙碌暂停，<em>喝一杯再走。</em></h1>
-      <p>甄选咖啡豆、新鲜烘焙与轻盈的午后滋味。</p>
-      <button class="btn btn-cream" @click="$emit('browse')">
-        开始点单 <span>→</span>
+      <p class="eyebrow">FIKA DAILY DROP · 现在就该对自己好一点</p>
+      <h1>今天的快乐，<em>先从这一口开始。</em></h1>
+      <p>一杯认真做的咖啡，给赶路的你一个暂停键。</p>
+      <button class="btn btn-cream" @click="$emit('featured')">
+        看看今日招牌 <span>→</span>
       </button>
     </div>
-    <div class="hero-card">
-      <span class="hero-tag">夏日限定</span>
+    <button class="hero-card" type="button" @click="$emit('featured')">
+      <span class="hero-tag">人气 TOP 1</span>
       <div class="hero-image">☕</div>
       <div>
-        <p>冷萃云朵拿铁</p>
-        <small>醇厚、清甜、刚刚好</small>
+        <p>{{ featuredProduct?.name || '云朵冷萃拿铁' }}</p>
+        <small>{{ featuredProduct?.description || '轻盈奶香 · 清醒不苦' }}</small>
       </div>
-      <b>¥ 28</b>
-    </div>
+      <b>¥ {{ Number(featuredProduct?.basePrice || 28).toFixed(0) }}</b>
+    </button>
   </section>
 </template>
 
@@ -29,13 +32,14 @@ const emit = defineEmits<{ browse: [] }>()
   width: min(1240px, calc(100% - 40px));
   margin: 12px auto 20px;
   min-height: 290px;
-  border-radius: 24px;
-  background: var(--pine);
+  border-radius: 32px;
+  background: linear-gradient(123deg, #173c30 4%, #245544 54%, #7ab391 160%);
   color: white;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 44px 60px;
+  padding: 50px 64px;
+  box-shadow: var(--shadow-float);
   overflow: hidden;
   position: relative;
 
@@ -77,7 +81,7 @@ h1 {
   margin: 9px 0;
 
   em {
-    color: #f3ba6f;
+    color: #ffd29a;
     font-style: normal;
   }
 }
@@ -86,7 +90,7 @@ h1 {
   z-index: 1;
   background: #fbf7f0;
   color: var(--ink);
-  border-radius: 18px;
+  border-radius: 22px;
   padding: 15px;
   width: 240px;
   display: grid;
@@ -94,7 +98,13 @@ h1 {
   gap: 10px;
   align-items: center;
   position: relative;
-  box-shadow: 0 15px 30px #07130d55;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 18px 38px #07130d55;
+  transform: rotate(2deg);
+  transition: transform .25s ease;
+  &:hover { transform: rotate(0deg) translateY(-5px); }
 }
 
 .hero-tag {

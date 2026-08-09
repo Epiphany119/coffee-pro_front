@@ -38,21 +38,21 @@ export const templateProducts: Product[] = [
 // ============================================================
 
 export const templateOrders: OrderRecord[] = [
-  { id: 48, storeId: 1, beverageName: '燕麦拿铁 x2、可颂 x1', size: '', condiments: '', originalPrice: 74, finalPrice: 74, status: 'PENDING', createdAt: '2026-08-05T19:47:00', fulfillmentType: 'DINE_IN', note: '静安店-018' },
-  { id: 47, storeId: 1, beverageName: '燕麦拿铁 x2、可颂 x1', size: '', condiments: '', originalPrice: 58, finalPrice: 58, status: 'PREPARING', createdAt: '2026-08-05T19:42:00', fulfillmentType: 'DINE_IN', note: '静安店-018' },
-  { id: 46, storeId: 1, beverageName: '冰美式 x1', size: '', condiments: '', originalPrice: 18, finalPrice: 18, status: 'PREPARING', createdAt: '2026-08-05T19:31:00', fulfillmentType: 'PICKUP', note: '外带' },
-  { id: 45, storeId: 1, beverageName: '拿铁 x1、巴斯克 x1', size: '', condiments: '', originalPrice: 56, finalPrice: 56, status: 'COMPLETED', createdAt: '2026-08-05T19:20:00', fulfillmentType: 'DINE_IN', note: '静安店-032' },
-  { id: 44, storeId: 1, beverageName: '澳白 x2、可颂 x2', size: '', condiments: '', originalPrice: 76, finalPrice: 76, status: 'COMPLETED', createdAt: '2026-08-05T19:12:00', fulfillmentType: 'DINE_IN', note: '静安店-005' },
-  { id: 43, storeId: 1, beverageName: '冷萃 x3', size: '', condiments: '', originalPrice: 54, finalPrice: 54, status: 'COMPLETED', createdAt: '2026-08-05T18:58:00', fulfillmentType: 'PICKUP', note: '外带' },
-  { id: 42, storeId: 1, beverageName: '手冲单品 x1', size: '', condiments: '', originalPrice: 38, finalPrice: 38, status: 'COMPLETED', createdAt: '2026-08-05T18:45:00', fulfillmentType: 'PICKUP', note: '外带' },
-  { id: 41, storeId: 1, beverageName: '黄油可颂 x2、柠檬挞 x1', size: '', condiments: '', originalPrice: 70, finalPrice: 70, status: 'COMPLETED', createdAt: '2026-08-05T18:32:00', fulfillmentType: 'DINE_IN', note: '静安店-021' },
-  { id: 40, storeId: 1, beverageName: '冰美式 x2', size: '', condiments: '', originalPrice: 36, finalPrice: 36, status: 'COMPLETED', createdAt: '2026-08-05T18:20:00', fulfillmentType: 'DINE_IN', note: '静安店-006' },
-  { id: 39, storeId: 1, beverageName: '鸡肉凯撒沙拉 x1、布朗尼 x1', size: '', condiments: '', originalPrice: 60, finalPrice: 60, status: 'COMPLETED', createdAt: '2026-08-05T18:05:00', fulfillmentType: 'PICKUP', note: '外带' },
-  { id: 38, storeId: 1, beverageName: '经典拿铁 x1', size: '', condiments: '', originalPrice: 28, finalPrice: 28, status: 'CANCELED', createdAt: '2026-08-05T17:52:00', fulfillmentType: 'PICKUP', note: '顾客取消' },
-  { id: 37, storeId: 1, beverageName: '巴斯克芝士 x2', size: '', condiments: '', originalPrice: 56, finalPrice: 56, status: 'COMPLETED', createdAt: '2026-08-05T17:38:00', fulfillmentType: 'DINE_IN', note: '静安店-015' },
-  { id: 36, storeId: 1, beverageName: '燕麦拿铁 x1、黄油可颂 x1', size: '', condiments: '', originalPrice: 48, finalPrice: 48, status: 'COMPLETED', createdAt: '2026-08-05T17:25:00', fulfillmentType: 'DINE_IN', note: '静安店-011' },
-  { id: 35, storeId: 1, beverageName: '冷萃 x1、布朗尼 x1', size: '', condiments: '', originalPrice: 46, finalPrice: 46, status: 'COMPLETED', createdAt: '2026-08-05T17:10:00', fulfillmentType: 'PICKUP', note: '外带' },
-  { id: 34, storeId: 1, beverageName: '澳白 x2', size: '', condiments: '', originalPrice: 52, finalPrice: 52, status: 'COMPLETED', createdAt: '2026-08-05T16:55:00', fulfillmentType: 'DINE_IN', note: '静安店-003' }
+  { id: 48, storeId: 1, orderNo: '260805-000001-000-015',beverageName: '燕麦拿铁 x2、可颂 x1', size: '', condiments: '', originalPrice: 74, finalPrice: 74, status: 'PENDING', createdAt: '2026-08-05T19:47:00', fulfillmentType: 'DINE_IN', note: '静安店-018' },
+  { id: 47, storeId: 1, orderNo: '260805-000001-000-014',beverageName: '燕麦拿铁 x2、可颂 x1', size: '', condiments: '', originalPrice: 58, finalPrice: 58, status: 'PREPARING', createdAt: '2026-08-05T19:42:00', fulfillmentType: 'DINE_IN', note: '静安店-018' },
+  { id: 46, storeId: 1, orderNo: '260805-000001-000-013',beverageName: '冰美式 x1', size: '', condiments: '', originalPrice: 18, finalPrice: 18, status: 'PREPARING', createdAt: '2026-08-05T19:31:00', fulfillmentType: 'PICKUP', note: '外带' },
+  { id: 45, storeId: 1, orderNo: '260805-000001-000-012',beverageName: '拿铁 x1、巴斯克 x1', size: '', condiments: '', originalPrice: 56, finalPrice: 56, status: 'COMPLETED', createdAt: '2026-08-05T19:20:00', fulfillmentType: 'DINE_IN', note: '静安店-032' },
+  { id: 44, storeId: 1, orderNo: '260805-000001-000-011',beverageName: '澳白 x2、可颂 x2', size: '', condiments: '', originalPrice: 76, finalPrice: 76, status: 'COMPLETED', createdAt: '2026-08-05T19:12:00', fulfillmentType: 'DINE_IN', note: '静安店-005' },
+  { id: 43, storeId: 1, orderNo: '260805-000001-000-010',beverageName: '冷萃 x3', size: '', condiments: '', originalPrice: 54, finalPrice: 54, status: 'COMPLETED', createdAt: '2026-08-05T18:58:00', fulfillmentType: 'PICKUP', note: '外带' },
+  { id: 42, storeId: 1, orderNo: '260805-000001-000-009',beverageName: '手冲单品 x1', size: '', condiments: '', originalPrice: 38, finalPrice: 38, status: 'COMPLETED', createdAt: '2026-08-05T18:45:00', fulfillmentType: 'PICKUP', note: '外带' },
+  { id: 41, storeId: 1, orderNo: '260805-000001-000-008',beverageName: '黄油可颂 x2、柠檬挞 x1', size: '', condiments: '', originalPrice: 70, finalPrice: 70, status: 'COMPLETED', createdAt: '2026-08-05T18:32:00', fulfillmentType: 'DINE_IN', note: '静安店-021' },
+  { id: 40, storeId: 1, orderNo: '260805-000001-000-007',beverageName: '冰美式 x2', size: '', condiments: '', originalPrice: 36, finalPrice: 36, status: 'COMPLETED', createdAt: '2026-08-05T18:20:00', fulfillmentType: 'DINE_IN', note: '静安店-006' },
+  { id: 39, storeId: 1, orderNo: '260805-000001-000-006',beverageName: '鸡肉凯撒沙拉 x1、布朗尼 x1', size: '', condiments: '', originalPrice: 60, finalPrice: 60, status: 'COMPLETED', createdAt: '2026-08-05T18:05:00', fulfillmentType: 'PICKUP', note: '外带' },
+  { id: 38, storeId: 1, orderNo: '260805-000001-000-005',beverageName: '经典拿铁 x1', size: '', condiments: '', originalPrice: 28, finalPrice: 28, status: 'CANCELED', createdAt: '2026-08-05T17:52:00', fulfillmentType: 'PICKUP', note: '顾客取消' },
+  { id: 37, storeId: 1, orderNo: '260805-000001-000-004',beverageName: '巴斯克芝士 x2', size: '', condiments: '', originalPrice: 56, finalPrice: 56, status: 'COMPLETED', createdAt: '2026-08-05T17:38:00', fulfillmentType: 'DINE_IN', note: '静安店-015' },
+  { id: 36, storeId: 1, orderNo: '260805-000001-000-003',beverageName: '燕麦拿铁 x1、黄油可颂 x1', size: '', condiments: '', originalPrice: 48, finalPrice: 48, status: 'COMPLETED', createdAt: '2026-08-05T17:25:00', fulfillmentType: 'DINE_IN', note: '静安店-011' },
+  { id: 35, storeId: 1, orderNo: '260805-000001-000-002',beverageName: '冷萃 x1、布朗尼 x1', size: '', condiments: '', originalPrice: 46, finalPrice: 46, status: 'COMPLETED', createdAt: '2026-08-05T17:10:00', fulfillmentType: 'PICKUP', note: '外带' },
+  { id: 34, storeId: 1, orderNo: '260805-000001-000-001',beverageName: '澳白 x2', size: '', condiments: '', originalPrice: 52, finalPrice: 52, status: 'COMPLETED', createdAt: '2026-08-05T16:55:00', fulfillmentType: 'DINE_IN', note: '静安店-003' }
 ]
 
 // ============================================================
@@ -123,9 +123,9 @@ export const templateSeatOverview = [
 
 /** 近期订单（仪表盘截图 5 条：47 制作中 / 46-43 已完成） */
 export const templateRecentOrders: OrderRecord[] = [
-  { id: 47, storeId: 1, beverageName: '燕麦拿铁 x2、可颂 x1', size: '', condiments: '', originalPrice: 58, finalPrice: 58, status: 'PREPARING', createdAt: '2026-08-05T19:42:00', fulfillmentType: 'DINE_IN', note: '静安店-018' },
-  { id: 46, storeId: 1, beverageName: '冰美式 x1', size: '', condiments: '', originalPrice: 18, finalPrice: 18, status: 'COMPLETED', createdAt: '2026-08-05T19:31:00', fulfillmentType: 'PICKUP', note: '外带' },
-  { id: 45, storeId: 1, beverageName: '拿铁 x1、巴斯克 x1', size: '', condiments: '', originalPrice: 56, finalPrice: 56, status: 'COMPLETED', createdAt: '2026-08-05T19:20:00', fulfillmentType: 'DINE_IN', note: '静安店-032' },
-  { id: 44, storeId: 1, beverageName: '澳白 x2、可颂 x2', size: '', condiments: '', originalPrice: 76, finalPrice: 76, status: 'COMPLETED', createdAt: '2026-08-05T19:12:00', fulfillmentType: 'DINE_IN', note: '静安店-005' },
-  { id: 43, storeId: 1, beverageName: '冷萃 x3', size: '', condiments: '', originalPrice: 54, finalPrice: 54, status: 'COMPLETED', createdAt: '2026-08-05T18:58:00', fulfillmentType: 'PICKUP', note: '外带' }
+  { id: 47, storeId: 1, orderNo: '260805-000001-000-014',beverageName: '燕麦拿铁 x2、可颂 x1', size: '', condiments: '', originalPrice: 58, finalPrice: 58, status: 'PREPARING', createdAt: '2026-08-05T19:42:00', fulfillmentType: 'DINE_IN', note: '静安店-018' },
+  { id: 46, storeId: 1, orderNo: '260805-000001-000-013',beverageName: '冰美式 x1', size: '', condiments: '', originalPrice: 18, finalPrice: 18, status: 'COMPLETED', createdAt: '2026-08-05T19:31:00', fulfillmentType: 'PICKUP', note: '外带' },
+  { id: 45, storeId: 1, orderNo: '260805-000001-000-012',beverageName: '拿铁 x1、巴斯克 x1', size: '', condiments: '', originalPrice: 56, finalPrice: 56, status: 'COMPLETED', createdAt: '2026-08-05T19:20:00', fulfillmentType: 'DINE_IN', note: '静安店-032' },
+  { id: 44, storeId: 1, orderNo: '260805-000001-000-011',beverageName: '澳白 x2、可颂 x2', size: '', condiments: '', originalPrice: 76, finalPrice: 76, status: 'COMPLETED', createdAt: '2026-08-05T19:12:00', fulfillmentType: 'DINE_IN', note: '静安店-005' },
+  { id: 43, storeId: 1, orderNo: '260805-000001-000-010',beverageName: '冷萃 x3', size: '', condiments: '', originalPrice: 54, finalPrice: 54, status: 'COMPLETED', createdAt: '2026-08-05T18:58:00', fulfillmentType: 'PICKUP', note: '外带' }
 ]

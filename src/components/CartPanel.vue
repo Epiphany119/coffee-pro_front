@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { CONDIMENTS, sizeText } from '@/api/types'
+import type { TopupProgress } from '@/api/types'
 
 const store = useAppStore()
-const orderNote = ref('')
 
 const cartCount = computed(() => store.cart.reduce((s, i) => s + i.quantity, 0))
 
@@ -18,10 +18,48 @@ const totals = computed(() => {
   }
   return {
     original,
+    afterMember,
     memberDiscount: Math.round((original - afterMember) * 100) / 100,
     coupon,
     final: Math.max(0, afterMember - coupon)
   }
+})
+
+// --- 凑单进度（购物袋金额距最近满减门槛还差多少；达标后不展示） ---
+const topupProgress = ref<TopupProgress | null>(null)
+let topupTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(
+  [() => totals.value.afterMember, () => store.selectedCoupon, () => store.currentUser?.id, () => store.cart.length],
+  () => {
+    if (topupTimer) clearTimeout(topupTimer)
+    topupTimer = setTimeout(loadTopupProgress, 250)
+  },
+  { immediate: true }
+)
+
+async function loadTopupProgress() {
+  if (!store.cart.length) {
+    topupProgress.value = null
+    return
+  }
+  try {
+    const { topupApi } = await import('@/api')
+    topupProgress.value = await topupApi.getProgress({
+      userId: store.isLoggedIn ? store.currentUser?.id : null,
+      amount: totals.value.afterMember,
+      couponCode: store.selectedCoupon?.code || null
+    })
+  } catch (e) {
+    console.warn('topup progress', e)
+    topupProgress.value = null
+  }
+}
+
+/** 进度条百分比：金额 / 目标门槛，封顶 100 */
+const topupPercent = computed(() => {
+  if (!topupProgress.value || topupProgress.value.reached) return 100
+  return Math.min(100, Math.round((totals.value.afterMember / topupProgress.value.threshold) * 100))
 })
 
 function fmtMoney(v: number) {
@@ -37,6 +75,7 @@ const emit = defineEmits<{
   clear: []
   'open-member': []
   'open-coupon': []
+  'open-topup': [gap: number]
 }>()
 </script>
 
@@ -45,7 +84,7 @@ const emit = defineEmits<{
     <div class="bag-header">
       <div>
         <p class="eyebrow">YOUR BAG</p>
-        <h2>购物袋 <span>{{ cartCount }}</span></h2>
+        <h2>你的这一杯 <span>{{ cartCount }}</span></h2>
       </div>
       <button
         v-if="store.cart.length"
@@ -57,8 +96,8 @@ const emit = defineEmits<{
     <div id="cartList" class="cart-list">
       <div v-if="!store.cart.length" class="bag-empty">
         <span>🛍</span>
-        <p>购物袋还是空的</p>
-        <small>从左侧挑选一份喜欢的吧</small>
+        <p>灵感还在路上</p>
+        <small>从菜单里挑一杯，今天就有好心情</small>
       </div>
       <div v-for="(item, i) in store.cart" :key="i" class="cart-item">
         <div>
@@ -71,6 +110,22 @@ const emit = defineEmits<{
           <span>{{ item.quantity }}</span>
           <button @click="changeQty(i, +1)">＋</button>
         </div>
+      </div>
+    </div>
+
+    <div
+      v-if="store.cart.length && topupProgress && !topupProgress.reached"
+      class="topup-area"
+    >
+      <div class="topup-head">
+        <div class="topup-text">
+          <b>还差 {{ fmtMoney(topupProgress.gap) }} 可用{{ topupProgress.couponName }}</b>
+          <small>满 {{ fmtMoney(topupProgress.threshold) }} 立减 {{ fmtMoney(topupProgress.discount) }} · 再挑点小吃小料吧</small>
+        </div>
+        <button class="topup-btn" @click="$emit('open-topup', topupProgress.gap)">去凑单</button>
+      </div>
+      <div class="topup-bar">
+        <div class="topup-bar-fill" :style="{ width: topupPercent + '%' }" />
       </div>
     </div>
 
@@ -96,7 +151,7 @@ const emit = defineEmits<{
     <label class="order-note" v-if="store.cart.length">
       <span>给店员留言</span>
       <input
-        v-model="orderNote"
+        v-model="store.orderNote"
         type="text"
         maxlength="60"
         placeholder="如：少冰、餐具数量等"
@@ -121,7 +176,7 @@ const emit = defineEmits<{
       :disabled="!store.cart.length"
       @click="$emit('submit')"
     >
-      去结算
+      {{ cartCount ? '确认这一单' : '选一杯再出发' }}
     </button>
     <p class="secure-note">🔒 安全结算 · 下单即开始制作</p>
   </aside>
@@ -133,11 +188,11 @@ const emit = defineEmits<{
   max-height: calc(100vh - 32px);
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 24px;
   padding: 20px;
   position: sticky;
   top: 16px;
-  box-shadow: 0 8px 24px rgba(38, 56, 41, .03);
+  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
 }
@@ -238,6 +293,74 @@ const emit = defineEmits<{
   padding-top: 12px;
   border-top: 1px dashed var(--line);
   flex-shrink: 0;
+}
+
+.topup-area {
+  margin: 14px 0 0;
+  padding: 11px 12px;
+  background: #fff9f0;
+  border: 1px solid #f0d9b0;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.topup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.topup-text {
+  min-width: 0;
+
+  b {
+    display: block;
+    font-size: 12px;
+    color: #8a4a18;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  small {
+    display: block;
+    font-size: 10px;
+    color: #a97b4c;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.topup-btn {
+  flex-shrink: 0;
+  border: 0;
+  background: var(--orange);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+
+  &:hover { opacity: .88; }
+}
+
+.topup-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: #f0e2cc;
+  margin-top: 9px;
+  overflow: hidden;
+}
+
+.topup-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #e8a86b, var(--orange));
+  transition: width .35s ease;
 }
 
 .coupon-selector {

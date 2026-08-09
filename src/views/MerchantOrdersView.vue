@@ -2,8 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useMerchantStore } from '@/stores/merchant'
-import { orderApi } from '@/api'
-import type { OrderRecord } from '@/api/types'
+import { afterSaleApi, orderApi } from '@/api'
+import type { FeedbackRecord, OrderItem, OrderRecord } from '@/api/types'
 import { sizeText } from '@/api/types'
 import { isTemplateStore, templateOrders } from '@/templates/merchantTemplates'
 
@@ -29,6 +29,11 @@ const filtered = computed(() =>
     ? orders.value
     : orders.value.filter(o => o.status === activeTab.value)
 )
+const orderPulse = computed(() => ({
+  pending: orders.value.filter(o => o.status === 'PENDING').length,
+  making: orders.value.filter(o => o.status === 'PREPARING').length,
+  completed: orders.value.filter(o => o.status === 'COMPLETED').length
+}))
 
 function rebuildTabs() {
   tabs.value = [
@@ -46,6 +51,16 @@ function formatTime(value: string | number[]) {
 
 function fmt(v: number) {
   return Number(v || 0).toFixed(2)
+}
+
+/** 明细行原价小计（原单价 × 数量，折前） */
+function originalSubtotal(it: OrderItem) {
+  return Math.round((it.originalUnitPrice ?? 0) * it.quantity * 100) / 100
+}
+
+/** 该明细行是否有真实折扣（原价小计 > 折后小计，差 ≥ 0.01） */
+function hasDiscount(it: OrderItem) {
+  return it.originalUnitPrice != null && originalSubtotal(it) > Math.round(it.subtotal * 100) / 100
 }
 
 async function loadOrders() {
@@ -70,6 +85,24 @@ onMounted(loadOrders)
 function openDetail(o: OrderRecord) {
   current.value = o
   drawerOpen.value = true
+  loadOrderFeedbacks(o.id)
+}
+
+/** 订单反馈（规则：反馈挂在订单第一个品下，抽屉明细中展示） */
+const orderFeedbacks = ref<FeedbackRecord[]>([])
+
+async function loadOrderFeedbacks(orderId: number) {
+  orderFeedbacks.value = []
+  if (templateMode.value) return
+  try {
+    orderFeedbacks.value = (await afterSaleApi.getOrderFeedbacks(orderId)) || []
+  } catch (e) {
+    console.warn('order feedbacks', e)
+  }
+}
+
+function fbTime(v?: string) {
+  return v ? String(v).replace('T', ' ').slice(0, 16) : '-'
 }
 
 async function doAction(o: OrderRecord, action: 'start' | 'complete' | 'cancel', tip: string) {
@@ -105,7 +138,8 @@ function badgeClass(s: string) {
 
 function itemText(o: OrderRecord) {
   let t = o.beverageName || ''
-  if (o.size) t += `（${sizeText(o)}）`
+  // 批量订单 size=MIXED，规格以明细行为准，不追加
+  if (o.size && o.size !== 'MIXED') t += `（${sizeText(o)}）`
   if (o.condiments) t += ` + ${o.condiments}`
   return t
 }
@@ -113,10 +147,24 @@ function itemText(o: OrderRecord) {
 function seatText(o: OrderRecord) {
   return o.fulfillmentType === 'DINE_IN' ? '店内用餐' : '到店自取'
 }
+
+/** 复制详细订单号（存档用） */
+async function copyOrderNo(no: string) {
+  try {
+    await navigator.clipboard.writeText(no)
+    ElMessage.success('详细订单号已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
 </script>
 
 <template>
   <div class="m-orders">
+    <section class="orders-hero">
+      <div><p>ORDER FLOW · LIVE</p><h2>把每一份期待，<em>准时交到顾客手里。</em></h2><small>点击订单查看完整明细、备注和顾客反馈。</small></div>
+      <div class="pulse-stats"><span><b>{{ orderPulse.pending }}</b> 待接单</span><span><b>{{ orderPulse.making }}</b> 制作中</span><span><b>{{ orderPulse.completed }}</b> 已完成</span></div>
+    </section>
     <!-- 状态筛选 -->
     <div class="tabs">
       <button
@@ -172,20 +220,55 @@ function seatText(o: OrderRecord) {
           <div class="drawer-title">#{{ current.id }}</div>
           <div class="order-badge" :class="badgeClass(current.status)">{{ STATUS_TEXT[current.status] || current.status }}</div>
         </div>
+        <div class="drawer-orderno">
+          <span class="orderno-label">详细订单号</span>
+          <div class="orderno-row">
+            <b class="orderno-value">{{ current.orderNo || '—' }}</b>
+            <button v-if="current.orderNo" class="orderno-copy" @click="copyOrderNo(current.orderNo)">复制</button>
+          </div>
+        </div>
         <div class="drawer-meta">
-          <div class="meta-row"><span>桌位</span><b>{{ seatText(current) }}</b></div>
+          <div class="meta-row"><span>取餐方式</span><b>{{ seatText(current) }}</b></div>
           <div class="meta-row"><span>下单时间</span><b>{{ formatTime(current.createdAt) }}</b></div>
+          <div v-if="current.estimatedReadyTime" class="meta-row"><span>预计取餐</span><b>{{ formatTime(current.estimatedReadyTime) }}</b></div>
           <div class="meta-row"><span>备注</span><b>{{ current.note || '无' }}</b></div>
         </div>
         <div class="drawer-items">
-          <div class="item-row">
+          <template v-if="current.items && current.items.length">
+            <div v-for="(it, idx) in current.items" :key="idx" class="item-row">
+              <span class="item-name">{{ it.beverageName }} ×{{ it.quantity }}</span>
+              <span class="item-sub">单价 ¥{{ fmt(it.unitPrice) }}</span>
+              <s v-if="hasDiscount(it)" class="item-original">¥{{ fmt(originalSubtotal(it)) }}</s>
+              <span v-else class="item-price">¥{{ fmt(it.subtotal) }}</span>
+            </div>
+          </template>
+          <div v-else class="item-row">
             <span class="item-name">{{ itemText(current) }}</span>
             <span class="item-price">¥{{ fmt(current.finalPrice) }}</span>
           </div>
         </div>
+
+        <!-- 订单反馈（规则：反馈挂在订单第一个品下，显示在明细第一位商品下方） -->
+        <div v-if="orderFeedbacks.length" class="drawer-feedback">
+          <div class="fb-title">顾客反馈 · {{ current.items?.[0]?.beverageName || itemText(current) }}</div>
+          <div v-for="f in orderFeedbacks" :key="f.id" class="fb-card">
+            <div class="fb-top">
+              <span class="fb-user">
+                <span v-if="f.rating" class="fb-stars">{{ '★'.repeat(f.rating) }}<i>{{ '☆'.repeat(5 - f.rating) }}</i></span>
+                <span class="fb-name">{{ f.username || '匿名用户' }}</span>
+              </span>
+              <span class="fb-time">{{ fbTime(f.createdAt) }}</span>
+            </div>
+            <p class="fb-content">{{ f.content }}</p>
+          </div>
+        </div>
+
         <div class="drawer-total">
-          <span>合计</span>
-          <b>¥{{ fmt(current.finalPrice) }}</b>
+          <template v-if="current.finalPrice < current.originalPrice">
+            <div class="total-row"><span>原价</span><b class="small">¥{{ fmt(current.originalPrice) }}</b></div>
+            <div class="total-row saved"><span>已省</span><b class="small">¥{{ fmt(Math.round((current.originalPrice - current.finalPrice) * 100) / 100) }}</b></div>
+          </template>
+          <div class="total-row pay"><span>实付</span><b>¥{{ fmt(current.finalPrice) }}</b></div>
         </div>
         <div class="drawer-actions">
           <button v-if="!templateMode && current.status === 'PENDING'" class="drawer-btn primary" @click="accept(current); drawerOpen = false">确认接单</button>
@@ -198,7 +281,8 @@ function seatText(o: OrderRecord) {
 </template>
 
 <style scoped>
-.m-orders { display: flex; flex-direction: column; gap: 18px; }
+.m-orders { display: flex; flex-direction: column; gap: 18px; max-width: 1500px; }
+.orders-hero{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:25px 29px;border-radius:22px;color:#fffaf2;background:radial-gradient(circle at 82% 0,rgba(255,191,128,.27),transparent 24%),linear-gradient(115deg,#123f31,#236a53);box-shadow:0 16px 34px rgba(19,73,55,.16)}.orders-hero p{margin:0;color:#ffbd87;font-size:10px;font-weight:800;letter-spacing:.15em}.orders-hero h2{margin:7px 0 5px;font-family:"DM Serif Display","Noto Sans SC",serif;font-size:27px;letter-spacing:-.025em}.orders-hero h2 em{color:#ffd19a;font-style:normal}.orders-hero small{color:rgba(255,255,255,.68);font-size:12px}.pulse-stats{display:flex;gap:8px}.pulse-stats span{display:flex;flex-direction:column;gap:3px;min-width:64px;padding:10px 13px;border:1px solid rgba(255,255,255,.14);border-radius:13px;color:rgba(255,255,255,.65);background:rgba(255,255,255,.08);font-size:10px}.pulse-stats b{color:#fff;font-family:"DM Serif Display",serif;font-size:19px}
 
 /* 状态 tab */
 .tabs {
@@ -240,7 +324,7 @@ function seatText(o: OrderRecord) {
 .order-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .order-row {
@@ -248,21 +332,18 @@ function seatText(o: OrderRecord) {
   align-items: center;
   gap: 18px;
   background: var(--paper);
-  border-radius: 14px;
-  padding: 14px 18px;
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(222, 219, 210, .4);
+  border-radius: 18px; padding:17px 20px; box-shadow:0 8px 20px rgba(34,54,45,.055); border: 1px solid rgba(222, 219, 210, .58);
   cursor: pointer;
   transition: transform .15s, border-color .15s;
 
-  &:hover { border-color: var(--orange); transform: translateY(-1px); }
+  &:hover { border-color: var(--orange); transform: translateY(-2px); box-shadow:0 14px 28px rgba(34,54,45,.1); }
 }
 
 .order-main { width: 210px; flex-shrink: 0; }
 
 .order-id {
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--pine);
 }
@@ -290,7 +371,7 @@ function seatText(o: OrderRecord) {
 }
 
 .order-amount {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--pine);
   width: 70px;
@@ -350,6 +431,50 @@ function seatText(o: OrderRecord) {
   color: var(--pine);
 }
 
+/* 详细订单号（存档） */
+.drawer-orderno {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+
+  .orderno-label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  .orderno-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .orderno-value {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--pine);
+    word-break: break-all;
+  }
+
+  .orderno-copy {
+    background: none;
+    border: 1px solid var(--pine);
+    color: var(--pine);
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+
+    &:hover {
+      background: var(--pine);
+      color: #fff;
+    }
+  }
+}
+
 .drawer-meta {
   padding: 16px 0;
   border-bottom: 1px solid var(--line);
@@ -374,21 +499,110 @@ function seatText(o: OrderRecord) {
     gap: 10px;
     padding: 7px 0;
     font-size: 13.5px;
-
     .item-name { flex: 1; color: var(--ink); }
-    .item-qty { color: var(--muted); font-size: 12.5px; }
-    .item-price { font-family: "SF Mono", Menlo, monospace; color: var(--pine); font-weight: 600; }
+    .item-sub { color: var(--muted); font-size: 12px; flex-shrink: 0; }
+    .item-price { font-family: "SF Mono", Menlo, monospace; color: var(--pine); font-weight: 600; flex-shrink: 0; }
+    .item-original { position: relative; font-family: "SF Mono", Menlo, monospace; color: var(--muted); flex-shrink: 0; }
+    /* 删除线用几何画线（伪元素），不依赖 text-decoration，任何浏览器/缓存状态下必渲染 */
+    .item-original::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: currentColor; transform: translateY(-50%); }
+  }
+}
+
+.drawer-feedback {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+
+  .fb-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--pine);
+    margin-bottom: 8px;
+  }
+
+  .fb-card {
+    background: #fffaf0;
+    border: 1px solid #f3e6c8;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .fb-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    .fb-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .fb-stars {
+      color: #f5a623;
+      font-size: 12.5px;
+
+      i {
+        color: #ddd8cf;
+        font-style: normal;
+      }
+    }
+
+    .fb-name {
+      font-size: 12px;
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .fb-time {
+      font-size: 11px;
+      color: var(--muted);
+    }
+  }
+
+  .fb-content {
+    margin: 5px 0 0;
+    font-size: 12.5px;
+    color: var(--ink);
+    line-height: 1.55;
+    word-break: break-all;
   }
 }
 
 .drawer-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 0 20px;
-  font-size: 14px;
-  color: var(--muted);
-  b { font-size: 20px; color: var(--pine); font-family: "SF Mono", Menlo, monospace; }
+  padding: 14px 0 20px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+
+  .total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--muted);
+
+    b {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 16px;
+      color: var(--pine);
+
+      &.small { font-size: 13px; font-weight: 600; }
+    }
+
+    &.saved { color: #2e9e5b; b { color: #2e9e5b; } }
+
+    &.pay {
+      padding-top: 8px;
+      border-top: 1px dashed var(--line);
+      font-size: 14px;
+      b { font-size: 20px; }
+    }
+  }
 }
 
 .drawer-btn {
@@ -404,4 +618,5 @@ function seatText(o: OrderRecord) {
   &.primary { background: var(--orange); color: #fff; }
   &.danger { background: #f3ece4; color: #b3561e; }
 }
+@media(max-width:850px){.orders-hero{align-items:flex-start;flex-direction:column}.order-row{align-items:flex-start;flex-wrap:wrap}.order-main{width:auto;min-width:150px}.order-items{order:3;flex-basis:100%;white-space:normal}.order-side{width:auto;margin-left:auto}.order-amount{margin-left:auto}}@media(max-width:560px){.pulse-stats{width:100%}.pulse-stats span{flex:1}.tabs{overflow-x:auto;flex-wrap:nowrap}.order-side{gap:6px}.order-badge{padding:3px 7px}}
 </style>

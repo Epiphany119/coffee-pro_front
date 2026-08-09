@@ -17,8 +17,22 @@ export default defineConfig(({ mode }) => {
         '@': resolve(__dirname, 'src')
       }
     },
+    build: {
+      rollupOptions: {
+        output: {
+          // 将稳定的第三方依赖从业务入口包拆出，浏览器可长期缓存，减少首屏更新下载量。
+          manualChunks: {
+            'vendor-vue': ['vue', 'vue-router', 'pinia'],
+            'vendor-element': ['element-plus'],
+            'vendor-http': ['axios']
+          }
+        }
+      }
+    },
     server: {
-      port: 5173,
+      port: 5174,
+      // 固定端口：5174 被占用时直接报错而不是静默顺延端口（避免"昨天能访问、今天访问不了"的漂移问题）
+      strictPort: true,
       host: '0.0.0.0',
       proxy: {
         '/api': {

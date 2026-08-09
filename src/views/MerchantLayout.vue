@@ -12,16 +12,17 @@ const booting = ref(true)
 
 /** 侧边导航项（与路由 children 对应） */
 const navItems = [
-  { path: '/merchant/dashboard', label: '仪表盘', icon: '◧' },
-  { path: '/merchant/orders', label: '订单管理', icon: '▤' },
-  { path: '/merchant/menu', label: '菜单管理', icon: '☕' },
-  { path: '/merchant/seats', label: '座位管理', icon: '▦' },
-  { path: '/merchant/settings', label: '店铺设置', icon: '⚙' }
+  { path: '/merchant/dashboard', label: '今天怎么样', icon: '◧' },
+  { path: '/merchant/orders', label: '订单节奏', icon: '▤' },
+  { path: '/merchant/after-sales', label: '顾客关怀', icon: '◌' },
+  { path: '/merchant/menu', label: '菜单灵感', icon: '☕' },
+  { path: '/merchant/seats', label: '门店现场', icon: '▦' },
+  { path: '/merchant/settings', label: '我的小店', icon: '⚙' }
 ]
 
 const pageTitle = computed(() => {
   const hit = navItems.find(n => route.path.startsWith(n.path))
-  return hit ? hit.label : '商家中心'
+  return hit ? hit.label : 'FIKA 商家中心'
 })
 
 /** 营业状态本地切换（示例数据，后续接后端 updateStore 接口） */
@@ -139,7 +140,7 @@ function goCenter() {
 .m-sidebar {
   width: 224px;
   flex-shrink: 0;
-  background: var(--pine);
+  background: linear-gradient(180deg, #173d31, #112d24);
   color: var(--paper);
   display: flex;
   flex-direction: column;
@@ -197,7 +198,7 @@ function goCenter() {
   background: transparent;
   color: rgba(255, 253, 249, .78);
   padding: 11px 14px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-size: 13.5px;
   letter-spacing: .02em;
   text-align: left;
@@ -207,7 +208,7 @@ function goCenter() {
 
   &:hover { background: rgba(255, 253, 249, .08); color: var(--paper); }
   &.active {
-    background: var(--orange);
+    background: linear-gradient(135deg, #fa8250, var(--orange));
     color: #fff;
     font-weight: 600;
   }

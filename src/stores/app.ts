@@ -107,7 +107,11 @@ export const useAppStore = defineStore('app', () => {
       const raw = localStorage.getItem(SESSION_KEY)
       if (!raw) return false
       const snapshot = JSON.parse(raw) as AuthResponse
-      if (!snapshot || snapshot.id == null) return false
+      // 鉴权改造前持久化的用户快照没有令牌，不能再作为有效登录态使用。
+      if (!snapshot || snapshot.id == null || !snapshot.accessToken) {
+        localStorage.removeItem(SESSION_KEY)
+        return false
+      }
       currentUser.value = snapshot
       void refreshUser(snapshot.id)
       return true
@@ -230,6 +234,8 @@ export const useAppStore = defineStore('app', () => {
 
   // --- Cart ---
   const cart = ref<CartItem[]>([])
+  /** 订单备注（给店员留言，购物袋输入，随购物袋一起清空） */
+  const orderNote = ref('')
 
   function addToCart(item: CartItem) {
     const exist = cart.value.find(
@@ -253,6 +259,7 @@ export const useAppStore = defineStore('app', () => {
 
   function clearCart() {
     cart.value = []
+    orderNote.value = ''
     selectedCoupon.value = null
   }
 
@@ -373,6 +380,7 @@ export const useAppStore = defineStore('app', () => {
     ensureGuestId,
     products, categories, activeCategory, setMenu, customRule,
     cart, addToCart, updateCartItem, clearCart,
+    orderNote,
     selectedCoupon,
     memberDashboard, updateMemberDashboard, updateUserSpent,
     orders, orderFilter, setOrders,

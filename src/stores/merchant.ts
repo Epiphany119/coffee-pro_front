@@ -33,7 +33,9 @@ export const useMerchantStore = defineStore('merchant', () => {
       const raw = localStorage.getItem('fikaMerchant')
       if (raw) {
         const m = JSON.parse(raw)
-        if (m && typeof m === 'object' && m.id != null && m.merchantNo) merchant.value = m
+        // 旧版会话没有 accessToken，继续复用只会让所有受保护接口返回 401/403，
+        // 显式清除并要求重新登录，避免界面误显示为“没有数据”。
+        if (m && typeof m === 'object' && m.id != null && m.merchantNo && m.accessToken) merchant.value = m
       }
       const rawStore = localStorage.getItem('fikaMerchantStore')
       if (rawStore) {

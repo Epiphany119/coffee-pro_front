@@ -23,9 +23,17 @@ import type {
   StoreResponse,
   Category,
   CategoryRequest,
+  StoreRecommendation,
   Voucher,
   RedeemItem,
-  RedeemResult
+  RedeemResult,
+  AfterSaleRecord,
+  FeedbackRecord,
+  PaymentRecord,
+  TopupProgress
+  , FlashSaleActivity
+  , FlashSaleClaim
+  , FlashSaleClaimRecord
 } from './types'
 
 // ============================================================
@@ -120,6 +128,36 @@ const request = axios.create({
   headers: { 'Content-Type': 'application/json' }
 })
 
+/**
+ * 每次请求从会话快照读取令牌，避免 store 初始化顺序和刷新恢复时出现循环依赖。
+ * 登录用户优先于商家；游客令牌只保存在 sessionStorage，关闭标签页即失效。
+ */
+function readAccessToken(preferMerchant = false): string | null {
+  try {
+    const user = JSON.parse(localStorage.getItem('fikaSession') || 'null')
+    const merchant = JSON.parse(localStorage.getItem('fikaMerchant') || 'null')
+    if (preferMerchant && merchant?.accessToken) return merchant.accessToken
+    if (user?.accessToken) return user.accessToken
+    if (merchant?.accessToken) return merchant.accessToken
+    return sessionStorage.getItem('fikaGuestToken')
+  } catch {
+    return null
+  }
+}
+
+request.interceptors.request.use((config) => {
+  const path = config.url || ''
+  // 商家端订单、座位、店铺接口也必须使用商家令牌；用户与商家同时登录时不能误带用户令牌。
+  const merchantRequest = path.startsWith('/merchant/')
+    || path.startsWith('/store/')
+    || path.startsWith('/seat/list')
+    || (path === '/orders' && !!config.params?.storeId)
+    || (path.startsWith('/orders/') && path.includes('storeId='))
+  const token = readAccessToken(merchantRequest)
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 // WebView 场景：异步探测后端地址（构建目标不支持顶层 await，探测完成后写入 baseURL）
 if (isInMiniProgramWebView) {
   detectApiHost().then((host) => {
@@ -166,15 +204,43 @@ export const authApi = {
     request.put<any, { success: boolean; message: string }>(`/auth/user/${id}/preference`, { storeId })
 }
 
+export const locationApi = {
+  saveUserLocation: (userId: number, latitude: number, longitude: number) =>
+    request.post<any, { success: boolean }>('/location/user', { userId, latitude, longitude }),
+  recommend: (latitude: number, longitude: number, limit = 5) =>
+    request.get<any, StoreRecommendation[]>('/location/recommend', { params: { latitude, longitude, limit } })
+}
+
 /** 游客会话（未登录身份由后端签发入库，前端仅内存持有） */
 export const guestApi = {
-  createSession: () =>
-    request.post<any, { success: boolean; guestId: string }>('/guest/session')
+  createSession: async () => {
+    const result = await request.post<any, { success: boolean; guestId: string; accessToken?: string }>('/guest/session')
+    try {
+      if (result.accessToken) sessionStorage.setItem('fikaGuestToken', result.accessToken)
+    } catch {}
+    return result
+  }
 }
 
 export const menuApi = {
   getMenu: (storeId?: number) =>
     request.get<any, MenuResponse>('/menu', { params: { storeId } })
+}
+
+/** 用户侧检索与个性化推荐（由服务端按当前身份和店铺计算） */
+export const discoveryApi = {
+  search: (storeId: number, keyword: string, limit = 12) =>
+    request.get<any, Product[]>('/discovery/search', { params: { storeId, keyword, limit } }),
+  recommendations: (params: { storeId: number; userId?: number | null; guestId?: string | null; limit?: number }) =>
+    request.get<any, Product[]>('/discovery/recommendations', { params })
+}
+
+export const flashSaleApi = {
+  current: (storeId: number) => request.get<any, FlashSaleActivity[]>('/flash-sales/current', { params: { storeId } }),
+  claim: (activityId: number, data: { userId?: number | null; guestId?: string | null }) =>
+    request.post<any, FlashSaleClaim>(`/flash-sales/${activityId}/claim`, data),
+  claims: (params: { userId?: number | null; guestId?: string | null }) =>
+    request.get<any, FlashSaleClaimRecord[]>('/flash-sales/claims', { params })
 }
 
 export const seatApi = {
@@ -204,8 +270,12 @@ export const seatApi = {
 }
 
 export const orderApi = {
-  createOrder: (data: OrderRequest) =>
-    request.post<any, OrderResponse>('/order', data),
+  /**
+   * 每次用户确认下单生成一枚幂等键；网络重试应复用同一枚 key，后端会返回原订单。
+   * 默认值适用于一次正常提交，调用方可传入 key 实现显式重试。
+   */
+  createOrder: (data: OrderRequest, idempotencyKey = createIdempotencyKey()) =>
+    request.post<any, OrderResponse>('/order', data, { headers: { 'Idempotency-Key': idempotencyKey } }),
 
   getUserOrders: (userId: number) =>
     request.get<any, OrderRecord[]>(`/orders/user/${userId}`),
@@ -216,11 +286,11 @@ export const orderApi = {
   getAllOrders: () =>
     request.get<any, OrderRecord[]>('/orders'),
 
-  cancelUserOrder: (id: number, action: string) =>
-    request.post<any, OrderResponse>(`/order/user/${id}/action?action=${action}`),
+  cancelUserOrder: (id: number, action: string, userId: number) =>
+    request.post<any, OrderResponse>(`/order/user/${id}/action?action=${action}&userId=${userId}`),
 
-  cancelGuestOrder: (id: number, action: string) =>
-    request.post<any, OrderResponse>(`/order/guest/${id}/action?action=${action}`),
+  cancelGuestOrder: (id: number, action: string, guestId: string) =>
+    request.post<any, OrderResponse>(`/order/guest/${id}/action?action=${action}&guestId=${encodeURIComponent(guestId)}`),
 
   /** 商家端：店铺订单列表（status 空 = 全部） */
   getStoreOrders: (storeId: number, status?: string) =>
@@ -229,6 +299,78 @@ export const orderApi = {
   /** 商家端：订单状态操作（start 接单 / complete 完成 / cancel 取消） */
   merchantAction: (orderId: number, action: string, storeId: number) =>
     request.post<any, OrderResponse>(`/orders/${orderId}/action?action=${action}&storeId=${storeId}`)
+}
+
+export const notificationApi = {
+  getUserNotifications: (userId: number) => request.get<any, any[]>(`/notifications/user/${userId}`)
+}
+
+function createIdempotencyKey(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  } catch {}
+  return `fika-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`
+}
+
+export const afterSaleApi = {
+  /** 创建售后单（仅已完成订单，同订单防重复） */
+  createAfterSale: (data: { userId: number; orderId: number; type: string; reason: string }) =>
+    request.post<any, AfterSaleRecord>('/after-sale', data),
+
+  /** 我的售后单列表 */
+  getMyAfterSales: (userId: number) =>
+    request.get<any, AfterSaleRecord[]>(`/after-sale/user/${userId}`),
+
+  /** 商家售后工作台 */
+  getStoreAfterSales: (storeId: number, status?: string) =>
+    request.get<any, AfterSaleRecord[]>('/merchant/after-sales', { params: { storeId, status } }),
+
+  process: (id: number, storeId: number, data: { status: string; handlerNote: string }) =>
+    request.put<any, AfterSaleRecord>(`/merchant/after-sales/${id}`, data, { params: { storeId } }),
+
+  /** 提交订单反馈（仅已完成订单） */
+  createFeedback: (data: { userId: number; orderId: number; content: string; rating?: number }) =>
+    request.post<any, FeedbackRecord>('/after-sale/feedback', data),
+
+  /** 我的反馈列表 */
+  getMyFeedbacks: (userId: number) =>
+    request.get<any, FeedbackRecord[]>(`/after-sale/feedback/user/${userId}`),
+
+  /** 按订单查反馈列表（商家端订单明细展示用） */
+  getOrderFeedbacks: (orderId: number) =>
+    request.get<any, FeedbackRecord[]>(`/after-sale/feedback/order/${orderId}`),
+
+  /** 按商品 id 查反馈列表（点餐界面商品下方展示用） */
+  getProductFeedbacks: (productId: number) =>
+    request.get<any, FeedbackRecord[]>(`/after-sale/feedback/product/${productId}`)
+}
+
+/** 凑单（购物袋满减进度条 + 凑单推荐） */
+export const topupApi = {
+  /** 凑单进度：购物袋金额距最近满减门槛还差多少（reached=true 已达标） */
+  getProgress: (params: { userId?: number | null; amount: number; couponCode?: string | null }) =>
+    request.get<any, TopupProgress>('/topup/progress', { params }),
+
+  /** 凑单推荐：仅推最低可买价 ≤ maxPrice 的凑单品（topup=1，按价格升序） */
+  getProducts: (storeId: number, maxPrice: number) =>
+    request.get<any, Product[]>(`/topup/products`, { params: { storeId, maxPrice } })
+}
+
+export const payApi = {
+  /** 为订单创建支付单（幂等：同订单已有支付单直接返回） */
+  createPayment: (orderId: number) =>
+    request.post<any, PaymentRecord>('/pay/create', { orderId }),
+  /** 发起支付（MOCK 直接成功；微信/支付宝/银行未接入返回 501） */
+  pay: (paymentNo: string, channel: string) =>
+    request.post<any, PaymentRecord>('/pay/pay', { paymentNo, channel }),
+
+  /** 按支付单号查询 */
+  getByPaymentNo: (paymentNo: string) =>
+    request.get<any, PaymentRecord>(`/pay/${paymentNo}`),
+
+  /** 按订单查询支付单（"去支付"入口拉取 paymentNo） */
+  getByOrderId: (orderId: number) =>
+    request.get<any, PaymentRecord>(`/pay/order/${orderId}`)
 }
 
 export const memberApi = {
@@ -294,13 +436,19 @@ export const merchantApi = {
   getMerchant: (id: number) =>
     request.get<any, MerchantResponse>(`/merchant/${id}`),
 
+  updateProfile: (id: number, data: { nickname?: string; phone?: string }) =>
+    request.put<any, MerchantResponse>(`/merchant/${id}/profile`, data),
+
+  changePassword: (id: number, data: { oldPassword: string; newPassword: string }) =>
+    request.put<any, { success: boolean; message: string }>(`/merchant/${id}/password`, data),
+
   /** 我的店铺（登录后入驻状态） */
   myStores: (id: number) =>
     request.get<any, StoreResponse[]>(`/merchant/${id}/stores`),
 
-  /** 商家工作台：店铺概览 + 今日统计 + 近7日营业额 + 近期订单 */
-  dashboard: (merchantId: number) =>
-    request.get<any, MerchantDashboard>(`/merchant/${merchantId}/dashboard`)
+  /** 商家工作台：店铺概览 + 今日统计 + 营业额柱状图(range: 7d/14d/28d/12w) + 近期订单 */
+  dashboard: (merchantId: number, range?: string) =>
+    request.get<any, MerchantDashboard>(`/merchant/${merchantId}/dashboard`, { params: { range } })
 }
 
 export const storeApi = {
@@ -354,7 +502,10 @@ export const storeApi = {
     fd.append('file', file)
     const res = await axios.post(`/api/store/${storeId}/menu/image`, fd, {
       timeout: 30000,
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        ...(readAccessToken() ? { Authorization: `Bearer ${readAccessToken()}` } : {})
+      }
     })
     const body = res.data
     return body && body.data ? body.data : body

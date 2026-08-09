@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { discoveryApi } from '@/api'
 import ProductCard from './ProductCard.vue'
 import type { Product } from '@/api/types'
 
 const store = useAppStore()
 const searchKeyword = ref('')
 const quickPick = ref('')
+const remoteProducts = ref<Product[] | null>(null)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const filteredProducts = computed(() => {
+  if (remoteProducts.value) return remoteProducts.value
   let list = store.products.filter(p => p.categoryCode === store.activeCategory)
 
   if (quickPick.value === 'favorites') {
@@ -17,6 +21,12 @@ const filteredProducts = computed(() => {
     list = store.products.filter(p => favs.has(p.code))
   } else if (quickPick.value === 'light') {
     list = store.products.filter(p => p.categoryCode === 'food')
+  } else if (quickPick.value === 'afternoon') {
+    list = store.products.filter(p => ['coffee', 'tea', 'dessert'].includes(p.categoryCode))
+  } else if (quickPick.value === 'recommend') {
+    const favoriteCategories = new Set(store.favoriteProducts.map(p => p.categoryCode))
+    const preferredCategories = favoriteCategories.size ? favoriteCategories : new Set(['coffee', 'tea'])
+    list = store.products.filter(p => preferredCategories.has(p.categoryCode)).slice(0, 8)
   }
 
   const kw = searchKeyword.value.trim().toLowerCase()
@@ -31,11 +41,46 @@ const filteredProducts = computed(() => {
 function setCategory(code: string) {
   store.activeCategory = code
   quickPick.value = ''
+  remoteProducts.value = null
 }
 
-function setQuickPick(action: string) {
+async function setQuickPick(action: string) {
   quickPick.value = quickPick.value === action ? '' : action
+  if (quickPick.value !== 'recommend') {
+    remoteProducts.value = null
+    return
+  }
+  const storeId = store.currentStore?.storeId
+  if (!storeId) return
+  try {
+    remoteProducts.value = await discoveryApi.recommendations({
+      storeId,
+      userId: store.currentUser?.id,
+      guestId: store.currentUser?.id ? null : await store.ensureGuestId(),
+      limit: 8
+    })
+  } catch {
+    remoteProducts.value = null
+  }
 }
+
+watch(searchKeyword, (keyword) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  const query = keyword.trim()
+  if (!query) {
+    remoteProducts.value = null
+    return
+  }
+  searchTimer = setTimeout(async () => {
+    const storeId = store.currentStore?.storeId
+    if (!storeId) return
+    try {
+      remoteProducts.value = await discoveryApi.search(storeId, query)
+    } catch {
+      remoteProducts.value = store.products.filter(p => `${p.name} ${p.description} ${p.categoryCode}`.toLowerCase().includes(query.toLowerCase()))
+    }
+  }, 220)
+})
 
 function selectProduct(product: Product) {
   emit('select-product', product)
@@ -48,15 +93,15 @@ const emit = defineEmits<{ 'select-product': [product: Product] }>()
   <section class="menu-section">
     <div class="section-heading">
       <div>
-        <p class="eyebrow">ORDER ONLINE</p>
-        <h2>今日菜单</h2>
+        <p class="eyebrow">FIND YOUR FIKA</p>
+        <h2>今天，想来点什么？</h2>
       </div>
       <label class="search-box">
         <span>⌕</span>
         <input
           v-model="searchKeyword"
           type="text"
-          placeholder="搜索咖啡、甜点或轻食"
+          placeholder="搜一搜今天的灵感"
         />
       </label>
     </div>
@@ -66,17 +111,22 @@ const emit = defineEmits<{ 'select-product': [product: Product] }>()
         class="quick-pick"
         :class="{ active: quickPick === 'favorites' }"
         @click="setQuickPick('favorites')"
-      >♡ 我的收藏</button>
+      >♡ 我常点的</button>
       <button
         class="quick-pick"
         :class="{ active: quickPick === 'afternoon' }"
         @click="setQuickPick('afternoon')"
-      >☀ 下午茶搭配</button>
+      >☀ 下午茶救星</button>
       <button
         class="quick-pick"
         :class="{ active: quickPick === 'light' }"
         @click="setQuickPick('light')"
-      >⚡ 低卡轻食</button>
+      >⚡ 轻负担能量</button>
+      <button
+        class="quick-pick recommend-pick"
+        :class="{ active: quickPick === 'recommend' }"
+        @click="setQuickPick('recommend')"
+      >✦ 为你推荐</button>
     </div>
 
     <div class="category-tabs">
@@ -213,7 +263,7 @@ const emit = defineEmits<{ 'select-product': [product: Product] }>()
 
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -223,4 +273,5 @@ const emit = defineEmits<{ 'select-product': [product: Product] }>()
   padding: 38px;
   font-size: 14px;
 }
+@media(max-width:680px){.section-heading{align-items:flex-start;flex-direction:column}.search-box{width:100%}.product-grid{grid-template-columns:1fr}}
 </style>

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '@/stores/app'
-import { storeApi } from '@/api'
+import { orderApi, storeApi } from '@/api'
 import type { StoreResponse } from '@/api/types'
 
 const store = useAppStore()
@@ -27,6 +27,7 @@ const emit = defineEmits<{
   'go-member': []
   'open-login': []
   'open-register': []
+  'open-featured': []
 }>()
 
 // --- 店铺选择 ---
@@ -36,6 +37,12 @@ const storeDialog = computed({
   set: (v) => (v ? store.openStorePicker() : store.closeStorePicker())
 })
 const loadingStores = ref(false)
+const brandDialog = ref(false)
+
+function openFeaturedFromBrand() {
+  brandDialog.value = false
+  emit('open-featured')
+}
 
 /** 打开弹窗：已缓存列表直接用，否则拉全部店铺（含打烊，打烊置灰不可选） */
 async function openStorePicker() {
@@ -51,11 +58,50 @@ async function openStorePicker() {
   }
 }
 
-/** 切换店铺：清空上一家店的购物袋与座位，避免串店 */
-function switchStore(s: StoreResponse) {
+/** 切换店铺：若有待支付订单先提醒并失效（取消），再清空上一家店的购物袋与座位，避免串店 */
+async function switchStore(s: StoreResponse) {
   if (s.storeId === currentStore.value?.storeId) {
     store.closeStorePicker()
     return
+  }
+  // 待支付订单挂在当前店铺下，切店后原店无法制作，须先提醒用户并失效
+  const unpaid = store.orders.filter(o => o.status === 'UNPAID')
+  if (unpaid.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        `切换门店后，当前店铺 ${unpaid.length} 笔待支付订单将失效，确定切换吗？`,
+        '切换门店',
+        {
+          type: 'warning',
+          confirmButtonText: '确认切换',
+          cancelButtonText: '再想想',
+          confirmButtonClass: 'el-button--danger'
+        }
+      )
+    } catch {
+      return // 用户放弃切换
+    }
+    // 用户确认：逐个取消待支付订单（失效），个别失败不阻塞切店
+    for (const o of unpaid) {
+      try {
+        if (store.isLoggedIn && store.currentUser?.id) {
+          await orderApi.cancelUserOrder(o.id, 'cancel', store.currentUser.id)
+        } else {
+          await orderApi.cancelGuestOrder(o.id, 'cancel', await store.ensureGuestId())
+        }
+      } catch (e) {
+        console.warn('cancel unpaid order failed', o.id, e)
+      }
+    }
+    // 刷新订单列表，让「订单存档」立刻反映失效结果
+    try {
+      const data = store.isLoggedIn && store.currentUser?.id
+        ? await orderApi.getUserOrders(store.currentUser.id)
+        : await orderApi.getGuestOrders(await store.ensureGuestId())
+      store.setOrders(data || [])
+    } catch (e) {
+      console.warn('refresh orders after switch failed', e)
+    }
   }
   store.setCurrentStore(s)
   store.closeStorePicker()
@@ -65,22 +111,22 @@ function switchStore(s: StoreResponse) {
 
 <template>
   <header class="site-header">
-    <div class="logo">
+    <button class="logo" type="button" title="认识 FIKA" @click="brandDialog = true">
       <img class="brand-mark" :src="fikaLogoMark" alt="Fika" /><span>FIKA</span>
-    </div>
+    </button>
     <div class="header-location" role="button" title="切换店铺" @click="openStorePicker">
       <span>●</span>
       <div>
         <b>{{ currentStore?.name || 'FIKA 静安店' }}</b>
-        <small>现在营业 · 点击切换店铺</small>
+        <small>正在为你萃取好心情 · 点击换店</small>
       </div>
       <span class="switch-arrow">▾</span>
     </div>
     <div class="user-bar">
       <template v-if="!store.isLoggedIn">
-        <a class="login-link" @click="$emit('open-login')">登录</a>
+        <a class="login-link" @click="$emit('open-login')">回来啦</a>
         <span style="color: var(--line); margin: 0 4px;">|</span>
-        <a class="login-link" @click="$emit('open-register')">注册</a>
+        <a class="login-link" @click="$emit('open-register')">加入 FIKA</a>
       </template>
       <template v-else>
         <div class="member-trigger" @click="$emit('go-member')">
@@ -120,13 +166,27 @@ function switchStore(s: StoreResponse) {
       </div>
       <p class="store-warn">切换店铺会清空当前购物袋与座位记录</p>
     </el-dialog>
+
+    <el-dialog v-model="brandDialog" width="480px" class="brand-dialog" :show-close="false">
+      <section class="brand-story">
+        <button class="brand-close" type="button" aria-label="关闭品牌介绍" @click="brandDialog = false">×</button>
+        <div class="brand-story-mark"><img :src="fikaLogoMark" alt="FIKA 品牌标志" /></div>
+        <p class="brand-kicker">A LITTLE FIKA, A LOT MORE YOU.</p>
+        <h2>给忙碌生活，<em>留一点 FIKA。</em></h2>
+        <p class="brand-copy">FIKA 源自北欧的咖啡小歇：不是匆匆喝完一杯，而是把自己从待办清单里领回来几分钟。用一杯认真做的咖啡，给今天一点松弛和能量。</p>
+        <div class="brand-promises">
+          <span>精选现磨</span><span>认真出杯</span><span>松弛一点</span>
+        </div>
+        <button class="brand-cta" type="button" @click="openFeaturedFromBrand">看看今日招牌 <b>→</b></button>
+      </section>
+    </el-dialog>
   </header>
 </template>
 
 <style lang="scss" scoped>
 .site-header {
   width: min(1240px, calc(100% - 40px));
-  height: 78px;
+  height: 88px;
   margin: auto;
   display: flex;
   align-items: center;
@@ -138,7 +198,7 @@ function switchStore(s: StoreResponse) {
   align-items: center;
   gap: 9px;
   font-family: "DM Serif Display", serif;
-  font-size: 25px;
+  font-size: 27px;
   letter-spacing: .06em;
   color: var(--ink);
   background: none;
@@ -160,8 +220,10 @@ function switchStore(s: StoreResponse) {
   gap: 10px;
   align-items: center;
   color: var(--muted);
-  border-left: 1px solid var(--line);
-  padding-left: 26px;
+  border: 1px solid var(--line);
+  background: rgba(255,254,250,.72);
+  border-radius: 16px;
+  padding: 8px 14px;
   font-size: 12px;
   cursor: pointer;
 
@@ -203,14 +265,14 @@ function switchStore(s: StoreResponse) {
   gap: 9px;
   border: 1px solid var(--line);
   background: var(--paper);
-  border-radius: 100px;
+  border-radius: 16px;
   padding: 7px 12px 7px 7px;
   color: var(--ink);
   font-size: 13px;
   cursor: pointer;
-  transition: box-shadow .18s;
+  transition: box-shadow .18s, transform .18s;
 
-  &:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  &:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
 
   small { display: block; color: var(--muted); font-size: 10px; }
 }
@@ -330,5 +392,85 @@ function switchStore(s: StoreResponse) {
   margin: 12px 0 0;
   color: var(--orange);
   font-size: 11px;
+}
+
+:deep(.brand-dialog) {
+  max-width: calc(100vw - 32px);
+  border-radius: 26px;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: 0 24px 64px rgba(20, 55, 43, .22);
+
+  .el-dialog__header { display: none; }
+  .el-dialog__body { padding: 0; }
+}
+
+.brand-story {
+  position: relative;
+  overflow: hidden;
+  padding: 46px 42px 40px;
+  color: #fffaf2;
+  background:
+    radial-gradient(circle at 100% 0, rgba(248, 185, 116, .27) 0 13%, transparent 13.5%),
+    radial-gradient(circle at 88% 0, rgba(255,255,255,.07) 0 23%, transparent 23.5%),
+    linear-gradient(135deg, #113d31 0%, #1d6550 100%);
+}
+
+.brand-close {
+  position: absolute;
+  top: 16px;
+  right: 17px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255,255,255,.09);
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.brand-story-mark {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 22px;
+  border-radius: 18px;
+  background: #fff9ef;
+
+  img { width: 38px; height: 38px; border-radius: 50%; }
+}
+
+.brand-kicker { margin: 0 0 9px; color: #ffb984; font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.brand-story h2 { margin: 0; font-family: "DM Serif Display", "Noto Sans SC", serif; font-size: clamp(28px, 7vw, 37px); line-height: 1.2; letter-spacing: -.03em; }
+.brand-story h2 em { color: #ffcf95; font-style: normal; }
+.brand-copy { max-width: 370px; margin: 18px 0; color: rgba(255,250,242,.75); font-size: 14px; line-height: 1.9; }
+
+.brand-promises { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.brand-promises span { padding: 7px 10px; border: 1px solid rgba(255,255,255,.15); border-radius: 99px; background: rgba(255,255,255,.08); color: rgba(255,250,242,.85); font-size: 11px; }
+
+.brand-cta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 17px;
+  border: 0;
+  border-radius: 14px;
+  color: #173e31;
+  background: #ffcc98;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform .18s, box-shadow .18s;
+
+  b { font-size: 21px; }
+  &:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,.18); }
+}
+
+@media (max-width: 560px) {
+  .brand-story { padding: 42px 26px 28px; }
 }
 </style>
