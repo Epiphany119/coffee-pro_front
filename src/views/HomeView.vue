@@ -2,8 +2,8 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
-import { orderApi, memberApi, membershipApi } from '@/api'
-import type { Product, Coupon } from '@/api/types'
+import { customerAgentApi, orderApi, memberApi, membershipApi } from '@/api'
+import type { Product, Coupon, CustomerAgentItem } from '@/api/types'
 
 import SiteHeader from '@/components/SiteHeader.vue'
 import HeroSection from '@/components/HeroSection.vue'
@@ -17,6 +17,7 @@ import FloatingRobot from '@/components/FloatingRobot.vue'
 import SeatPanel from '@/components/SeatPanel.vue'
 import PayDialog from '@/components/PayDialog.vue'
 import TopupDialog from '@/components/TopupDialog.vue'
+import CustomerOrderAgent from '@/components/CustomerOrderAgent.vue'
 
 const store = useAppStore()
 const emit = defineEmits<{ 'go-member': []; 'open-login': []; 'open-register': [] }>()
@@ -36,6 +37,7 @@ const payPaymentNo = ref<string | null>(null)
 /** 凑单弹窗（购物袋进度条"去凑单"打开） */
 const topupVisible = ref(false)
 const topupGap = ref(0)
+const customerAgentVisible = ref(false)
 
 /** 首屏招牌必须来自当前门店的真实菜单，优先找冷萃/拿铁；无匹配时回退第一款咖啡。 */
 const featuredProduct = computed(() => {
@@ -142,6 +144,33 @@ async function submitOrder() {
   }
 }
 
+/** Agent 方案确认后直接创建待支付订单：不写购物袋，但仍复用订单幂等、身份、价格与库存校验。 */
+async function submitAgentOrder(planToken: string, includeAddOn = false) {
+  if (!planToken || !store.currentStore?.storeId) return
+  submitting.value = true
+  try {
+    const data = await customerAgentApi.confirm({
+      planToken,
+      storeId: store.currentStore.storeId,
+      fulfillmentType: fulfillmentType.value,
+      includeAddOn
+    })
+    ElMessage.success(`Agent 已为你创建订单 · 共 ¥${data.finalPrice}`)
+    if (store.isLoggedIn) {
+      store.updateUserSpent(data.totalSpent, data.memberLevel)
+      await loadMemberDashboard()
+    }
+    await loadOrders()
+    payOrderId.value = data.orderId ?? data.id
+    payPaymentNo.value = data.paymentNo || null
+    payVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(`Agent 下单失败：${e.message}`)
+  } finally {
+    submitting.value = false
+  }
+}
+
 async function cancelOrder(id: number) {
   if (!confirm('确定取消这笔订单吗？')) return
   try {
@@ -222,6 +251,11 @@ function openFeaturedProduct() {
       </label>
     </section>
 
+    <section class="agent-entry">
+      <div><span>✦</span><div><b>不想翻菜单？直接告诉 FIKA 你想喝什么。</b><small>按你的喜好、门店热销与用户反馈搭配；确认后一步到支付。</small></div></div>
+      <button type="button" @click="customerAgentVisible = true">和点单 Agent 聊聊 →</button>
+    </section>
+
     <!-- Shop layout -->
     <div class="shop-layout" id="menuAnchor">
       <div>
@@ -275,6 +309,11 @@ function openFeaturedProduct() {
       :store-id="store.currentStore?.storeId ?? null"
       :gap="topupGap"
     />
+
+    <CustomerOrderAgent
+      v-model="customerAgentVisible"
+      @checkout="submitAgentOrder"
+    />
   </div>
 </template>
 
@@ -295,6 +334,26 @@ function openFeaturedProduct() {
   display: flex;
   padding: 7px;
   gap: 6px;
+}
+
+.agent-entry {
+  width: min(1240px, calc(100% - 40px));
+  margin: -12px auto 28px;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #f2d4c3;
+  border-radius: 16px;
+  background: linear-gradient(105deg, #fff9f3, #fffdf8);
+
+  > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  span { display: grid; place-items: center; width: 31px; height: 31px; flex: none; border-radius: 10px; color: #fff; background: var(--orange); }
+  b, small { display: block; }
+  b { color: var(--ink); font-size: 13px; }
+  small { margin-top: 3px; color: var(--muted); font-size: 11px; }
+  button { flex: none; border: 0; border-radius: 10px; padding: 10px 13px; cursor: pointer; color: #fff; background: var(--pine); font-weight: 700; font-size: 12px; }
 }
 
 .service-option {
@@ -352,5 +411,9 @@ function openFeaturedProduct() {
   .shop-layout {
     grid-template-columns: 1fr;
   }
+}
+@media (max-width: 620px) {
+  .agent-entry { align-items: flex-start; flex-direction: column; margin-top: -10px; }
+  .agent-entry button { width: 100%; }
 }
 </style>

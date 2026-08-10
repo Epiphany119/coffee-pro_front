@@ -32,6 +32,10 @@ const emit = defineEmits<{
 
 // --- 店铺选择 ---
 const currentStore = computed(() => store.currentStore)
+/** 再做一层渲染保护，避免历史状态或异常接口项中断整个页面。 */
+const selectableStores = computed(() =>
+  store.storeList.filter((s): s is StoreResponse => !!s && s.storeId != null)
+)
 const storeDialog = computed({
   get: () => store.storePickerOpen,
   set: (v) => (v ? store.openStorePicker() : store.closeStorePicker())
@@ -47,7 +51,9 @@ function openFeaturedFromBrand() {
 /** 打开弹窗：已缓存列表直接用，否则拉全部店铺（含打烊，打烊置灰不可选） */
 async function openStorePicker() {
   store.openStorePicker()
-  if (store.storeList.length > 0) return
+  // HMR 会保留 Pinia 的旧状态；旧列表即使只含 null 也不能当作有效缓存。
+  // 以已校验的列表为准，确保异常状态后仍能重新拉到后端的全部门店。
+  if (selectableStores.value.length > 0) return
   loadingStores.value = true
   try {
     store.setStoreList(await storeApi.list())
@@ -144,7 +150,7 @@ async function switchStore(s: StoreResponse) {
       <p class="store-tip">选择一家正在营业的店铺，下单与该店铺交易（打烊店铺不可选）</p>
       <div v-loading="loadingStores" class="store-list">
         <div
-          v-for="s in store.storeList"
+          v-for="s in selectableStores"
           :key="s.storeId"
           class="store-item"
           :class="{ current: s.storeId === currentStore?.storeId, closed: s.status !== 'OPEN' }"
@@ -160,7 +166,7 @@ async function switchStore(s: StoreResponse) {
           <span v-else-if="s.status !== 'OPEN'" class="store-closed">已打烊</span>
           <span v-else class="store-go">切换 →</span>
         </div>
-        <div v-if="!loadingStores && store.storeList.length === 0" class="store-empty">
+        <div v-if="!loadingStores && selectableStores.length === 0" class="store-empty">
           暂无店铺
         </div>
       </div>

@@ -26,6 +26,7 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/merchant/dashboard' },
       { path: 'guide', name: 'merchant-guide', component: () => import('@/views/MerchantHomeView.vue') },
       { path: 'dashboard', name: 'merchant-dashboard', component: () => import('@/views/MerchantDashboardView.vue') },
+      { path: 'growth-agent', name: 'merchant-growth-agent', component: () => import('@/views/MerchantGrowthAgentView.vue') },
       { path: 'orders', name: 'merchant-orders', component: () => import('@/views/MerchantOrdersView.vue') },
       { path: 'after-sales', name: 'merchant-after-sales', component: () => import('@/views/MerchantAfterSalesView.vue') },
       { path: 'menu', name: 'merchant-menu', component: () => import('@/views/MerchantMenuView.vue') },

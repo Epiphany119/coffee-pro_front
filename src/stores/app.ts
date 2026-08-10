@@ -19,7 +19,11 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function setStoreList(list: StoreResponse[]) {
-    storeList.value = list
+    // 接口异常数据不能进入响应式渲染树；否则店铺选择弹窗读取 s.storeId
+    // 会让整个首页挂载失败，连“登录/注册”入口也无法点击。
+    storeList.value = Array.isArray(list)
+      ? list.filter((store): store is StoreResponse => !!store && store.storeId != null)
+      : []
   }
 
   function setCurrentStore(store: StoreResponse | null) {

@@ -58,12 +58,9 @@ watch([() => store.currentStore, () => store.storePickerOpen, () => store.isLogg
   }
 })
 
-/** 本地无座位时：按身份找回当前店已落座的座位，找回失败才弹取号框 */
+/** 本地无座位时：只恢复已有座位；不能因打开首页而强制遮挡用户的点单页面。 */
 async function ensureSeatState() {
-  const restored = await tryRestoreSeat()
-  if (!restored) {
-    modal.value = 'select'
-  }
+  await tryRestoreSeat()
 }
 
 /** 幽灵占座恢复：查当前店中当前身份已落座的座位，有则恢复显示并返回 true */

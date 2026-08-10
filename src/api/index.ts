@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type {
   AuthRequest,
+  LoginChallenge,
   AuthResponse,
   ForgotPasswordRequest,
   ForgotPasswordResponse,
@@ -34,6 +35,9 @@ import type {
   , FlashSaleActivity
   , FlashSaleClaim
   , FlashSaleClaimRecord
+  , GrowthAgentAnalysis
+  , GrowthAgentAction
+  , CustomerAgentPlan
 } from './types'
 
 // ============================================================
@@ -147,6 +151,20 @@ function readAccessToken(preferMerchant = false): string | null {
 
 request.interceptors.request.use((config) => {
   const path = config.url || ''
+  // 登录、注册、找回密码和游客建会话都是公开接口。绝不能附带旧 Token：
+  // 否则后端会在进入登录控制器前校验到已过期 Token，表现为“重新登录也登录不上”。
+  const publicSessionRequest = path === '/auth/login'
+    || path === '/auth/register'
+    || path === '/auth/forgot-password'
+    || path === '/auth/reset-password'
+    || path === '/auth/login-challenge'
+    || path === '/merchant/login'
+    || path === '/merchant/register'
+    || path === '/guest/session'
+  if (publicSessionRequest) {
+    delete config.headers.Authorization
+    return config
+  }
   // 商家端订单、座位、店铺接口也必须使用商家令牌；用户与商家同时登录时不能误带用户令牌。
   const merchantRequest = path.startsWith('/merchant/')
     || path.startsWith('/store/')
@@ -173,6 +191,20 @@ request.interceptors.response.use(
   },
   (err) => {
     console.error('[fika-api] request failed:', err.config?.url, err.message)
+    // 令牌过期后不保留无效快照，下一次登录不会再把它带到公开登录接口。
+    // 按请求域清理，避免一个身份失效时误清除另一个独立面板的会话。
+    if (err.response?.status === 401) {
+      try {
+        const path = err.config?.url || ''
+        if (path.startsWith('/merchant/') || path.startsWith('/store/')) {
+          localStorage.removeItem('fikaMerchant')
+          localStorage.removeItem('fikaMerchantStore')
+        } else {
+          localStorage.removeItem('fikaSession')
+          sessionStorage.removeItem('fikaGuestToken')
+        }
+      } catch {}
+    }
     if (err.response?.status === 0) {
       throw new Error('网络连接失败，请检查后端服务是否启动')
     }
@@ -181,6 +213,9 @@ request.interceptors.response.use(
 )
 
 export const authApi = {
+  /** 后端签发的短时、一次性验证码；登录成功或刷新后即作废。 */
+  loginChallenge: () => request.get<any, LoginChallenge>('/auth/login-challenge'),
+
   login: (data: AuthRequest) =>
     request.post<any, AuthResponse>('/auth/login', data),
 
@@ -241,6 +276,15 @@ export const flashSaleApi = {
     request.post<any, FlashSaleClaim>(`/flash-sales/${activityId}/claim`, data),
   claims: (params: { userId?: number | null; guestId?: string | null }) =>
     request.get<any, FlashSaleClaimRecord[]>('/flash-sales/claims', { params })
+}
+
+/** 顾客点单 Agent：只生成受控菜单方案，确认下单仍走订单/支付的正式链路。 */
+export const customerAgentApi = {
+  plan: (data: { storeId: number; userId?: number | null; guestId?: string | null; message: string }) =>
+    request.post<any, CustomerAgentPlan>('/customer-agent/plan', data),
+  /** 只提交一次性方案令牌；商品行由服务端从已审计的方案快照读取。 */
+  confirm: (data: { planToken: string; storeId: number; userId?: number | null; guestId?: string | null; fulfillmentType: string; includeAddOn?: boolean }, idempotencyKey = createIdempotencyKey()) =>
+    request.post<any, OrderResponse>('/customer-agent/plans/confirm', data, { headers: { 'Idempotency-Key': idempotencyKey } })
 }
 
 export const seatApi = {
@@ -448,7 +492,17 @@ export const merchantApi = {
 
   /** 商家工作台：店铺概览 + 今日统计 + 营业额柱状图(range: 7d/14d/28d/12w) + 近期订单 */
   dashboard: (merchantId: number, range?: string) =>
-    request.get<any, MerchantDashboard>(`/merchant/${merchantId}/dashboard`, { params: { range } })
+    request.get<any, MerchantDashboard>(`/merchant/${merchantId}/dashboard`, { params: { range } }),
+
+  /** 店长增长 Agent：受控数据分析、待审批营销动作与审计记录。 */
+  growthAgentAnalyze: (merchantId: number, message: string) =>
+    request.post<any, GrowthAgentAnalysis>(`/merchant/${merchantId}/growth-agent/analyze`, { message }),
+  growthAgentCreateAction: (merchantId: number, data: { actionType: string; title: string; proposal: Record<string, unknown> }) =>
+    request.post<any, { id: number; status: string; message: string }>(`/merchant/${merchantId}/growth-agent/actions`, data),
+  growthAgentExecuteAction: (merchantId: number, actionId: number) =>
+    request.post<any, { id: number; status: string; affectedUsers: number; message: string }>(`/merchant/${merchantId}/growth-agent/actions/${actionId}/execute`),
+  growthAgentActions: (merchantId: number) =>
+    request.get<any, GrowthAgentAction[]>(`/merchant/${merchantId}/growth-agent/actions`)
 }
 
 export const storeApi = {

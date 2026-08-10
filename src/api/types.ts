@@ -2,6 +2,14 @@ export interface AuthRequest {
   username: string
   password: string
   nickname?: string
+  challengeId?: string
+  challengeCode?: string
+}
+
+export interface LoginChallenge {
+  challengeId: string
+  imageDataUrl: string
+  expiresInSeconds: number
 }
 
 export interface AuthResponse {
@@ -150,6 +158,87 @@ export interface FlashSaleClaimRecord {
   productCode: string
   title: string
   flashPrice: number
+}
+
+export interface GrowthAgentSignal {
+  label: string
+  value: string
+  note: string
+}
+
+export interface GrowthAgentProposal {
+  actionType: 'NOTIFY_MEMBERS' | 'CREATE_VOUCHERS'
+  title: string
+  summary: string
+  reason: string
+  proposal: Record<string, unknown>
+}
+
+export interface GrowthAgentAnalysis {
+  answer: string
+  signals: GrowthAgentSignal[]
+  understanding?: string
+  dataSources?: string[]
+  suggestedAction: GrowthAgentProposal
+  snapshot: { todayOrders: number; todayRevenue: number; pendingOrders: number; weekRevenue: number; flashSaleStock: number }
+  storeId: number
+  storeName: string
+  engine: string
+  disclaimer: string
+}
+
+export interface GrowthAgentAction {
+  id: number
+  actionType: string
+  title: string
+  status: 'PENDING' | 'EXECUTING' | 'EXECUTED' | 'CANCELED' | 'FAILED'
+  createdAt: string | number[]
+  executedAt?: string | number[] | null
+}
+
+export interface CustomerAgentItem {
+  productCode: string
+  name: string
+  description?: string
+  imageUrl?: string
+  categoryCode: string
+  temperature: string
+  size: string
+  quantity: number
+  estimatedPrice: number
+  reason: string
+}
+
+export interface CustomerAgentOption {
+  title: string
+  items: CustomerAgentItem[]
+  planToken: string
+  promotion?: CustomerAgentPromotion
+}
+
+export interface CustomerAgentPromotion {
+  type: 'QUALIFIED' | 'NEAR' | 'NONE'
+  text: string
+  threshold: number
+  amount: number
+  /** 服务端已封装在当前计划令牌里的真实凑单项，不由浏览器自行决定商品。 */
+  suggestedItems?: CustomerAgentItem[]
+  canAddOn?: boolean
+}
+
+export interface CustomerAgentPlan {
+  reply: string
+  items: CustomerAgentItem[]
+  options?: CustomerAgentOption[]
+  signals: { label: string; value: string; used: boolean }[]
+  /** 服务端从自然语言中解析出的、不可由模型文案覆盖的业务约束。 */
+  understanding?: string
+  promotion?: CustomerAgentPromotion
+  note: string
+  engine?: string
+  storeName?: string
+  planToken: string
+  expiresInSeconds: number
 }
 
 export interface CartItemRequest {
@@ -519,6 +608,8 @@ export interface MerchantRegisterRequest {
 export interface MerchantLoginRequest {
   merchantNo: string
   password: string
+  challengeId?: string
+  challengeCode?: string
 }
 
 /** 商家端菜单新增/编辑请求（对应后端 MenuItemRequest） */

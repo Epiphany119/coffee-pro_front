@@ -178,10 +178,16 @@ function openAfterSale(o: any) {
 
 /** 支付弹窗（待支付订单"去支付"） */
 const payVisible = ref(false)
-const payOrder = ref<any>(null)
+const payOrderId = ref<number | null>(null)
 
 function openPay(o: any) {
-  payOrder.value = o
+  // 订单列表、详情接口可能分别使用 id/orderId；收银台只接受确定的订单主键。
+  const id = Number(o?.id ?? o?.orderId)
+  if (!Number.isFinite(id) || id <= 0) {
+    ElMessage.error('未找到订单编号，无法发起支付')
+    return
+  }
+  payOrderId.value = id
   payVisible.value = true
 }
 
@@ -537,7 +543,7 @@ function handleLogout() {
     <!-- 售后申请弹窗 -->
     <AfterSaleDialog v-model="afterSaleVisible" :order="afterSaleOrder" />
     <!-- 支付弹窗 -->
-    <PayDialog v-model="payVisible" :order-id="payOrder?.id" @paid="onPaid" />
+    <PayDialog v-model="payVisible" :order-id="payOrderId" @paid="onPaid" />
   </div>
 </template>
 

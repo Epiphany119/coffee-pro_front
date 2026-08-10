@@ -3,8 +3,8 @@ import { ref, reactive, onMounted } from 'vue'
 import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { merchantApi, storeApi } from '@/api'
-import type { StoreResponse } from '@/api/types'
+import { authApi, merchantApi, storeApi } from '@/api'
+import type { LoginChallenge, StoreResponse } from '@/api/types'
 import { useMerchantStore } from '@/stores/merchant'
 
 const router = useRouter()
@@ -13,8 +13,9 @@ const mstore = useMerchantStore()
 const tab = ref<'login' | 'register'>('login')
 
 // 登录
-const loginForm = reactive({ merchantNo: '', password: '' })
+const loginForm = reactive({ merchantNo: '', password: '', challengeId: '', challengeCode: '' })
 const loginLoading = ref(false)
+const loginChallenge = ref<LoginChallenge | null>(null)
 
 // 注册
 const regForm = reactive({ username: '', password: '', confirm: '', nickname: '', phone: '' })
@@ -23,24 +24,37 @@ const regLoading = ref(false)
 const stores = ref<StoreResponse[]>([])
 const selectedStoreId = ref<number | null>(null)
 
+async function refreshLoginChallenge() {
+  try {
+    loginChallenge.value = await authApi.loginChallenge()
+    loginForm.challengeId = loginChallenge.value.challengeId
+    loginForm.challengeCode = ''
+  } catch (e) {
+    ElMessage.error('验证码加载失败，请检查后端服务')
+  }
+}
+
 onMounted(async () => {
   try {
     stores.value = await storeApi.available()
   } catch (e: any) {
     console.warn('加载可入驻店铺失败', e)
   }
+  await refreshLoginChallenge()
 })
 
 async function doLogin() {
-  if (!loginForm.merchantNo.trim() || !loginForm.password) {
-    ElMessage.warning('请输入商家编号和密码')
+  if (!loginForm.merchantNo.trim() || !loginForm.password || !loginForm.challengeCode) {
+    ElMessage.warning('请输入商家编号、密码和验证码')
     return
   }
   loginLoading.value = true
   try {
     const res = await merchantApi.login({
       merchantNo: loginForm.merchantNo.trim(),
-      password: loginForm.password
+      password: loginForm.password,
+      challengeId: loginForm.challengeId,
+      challengeCode: loginForm.challengeCode
     })
     if (res.success) {
       mstore.setMerchant(res)
@@ -50,9 +64,11 @@ async function doLogin() {
       router.push('/merchant')
     } else {
       ElMessage.error(res.message || '登录失败')
+      await refreshLoginChallenge()
     }
   } catch (e: any) {
     ElMessage.error(e.message || '登录失败')
+    await refreshLoginChallenge()
   } finally {
     loginLoading.value = false
   }
@@ -132,6 +148,16 @@ function backToUser() {
         <label>
           <span>密码</span>
           <input v-model="loginForm.password" type="password" placeholder="请输入密码" />
+        </label>
+        <label>
+          <span>验证码</span>
+          <div class="m-challenge-row">
+            <input v-model="loginForm.challengeCode" maxlength="5" autocomplete="off" placeholder="输入图中字符" />
+            <button type="button" class="m-challenge-image" title="换一张验证码" @click="refreshLoginChallenge">
+              <img v-if="loginChallenge" :src="loginChallenge.imageDataUrl" alt="登录验证码，点击刷新" />
+              <span v-else>加载中…</span>
+            </button>
+          </div>
         </label>
         <button class="primary-btn" type="submit" :disabled="loginLoading">
           {{ loginLoading ? '登录中...' : '登 录' }}
@@ -288,6 +314,28 @@ function backToUser() {
     }
   }
 }
+
+.m-challenge-row {
+  display: flex;
+  gap: 10px;
+}
+
+.m-challenge-row input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: .1em; }
+
+.m-challenge-image {
+  width: 115px;
+  height: 42px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #ded5ca;
+  border-radius: 8px;
+  background: #f6eee5;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.m-challenge-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 .m-tip {
   font-size: 12px;

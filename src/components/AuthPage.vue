@@ -1,12 +1,12 @@
 <script setup lang="ts">
 
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import fikaLogoMark from '@/assets/images/fika-logo-mark.png'
 import fikaLogo from '@/assets/images/fika-logo.png'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import { authApi } from '@/api'
-import type { AuthRequest } from '@/api/types'
+import type { AuthRequest, LoginChallenge } from '@/api/types'
 
 const store = useAppStore()
 
@@ -20,8 +20,10 @@ const activeTab =
 const loginForm =
     ref<AuthRequest>({
       username:'',
-      password:''
+      password:'',
+      challengeCode: ''
     })
+const loginChallenge = ref<LoginChallenge | null>(null)
 
 interface RegisterForm extends AuthRequest {
   confirm: string
@@ -53,6 +55,18 @@ const emit = defineEmits([
   'login-success',
   'enter-main'
 ])
+
+async function refreshLoginChallenge() {
+  try {
+    loginChallenge.value = await authApi.loginChallenge()
+    loginForm.value.challengeId = loginChallenge.value.challengeId
+    loginForm.value.challengeCode = ''
+  } catch {
+    loginHint.value = '验证码加载失败，请确认后端服务已启动后重试'
+  }
+}
+
+onMounted(() => { void refreshLoginChallenge() })
 
 /** 密码强度检查（与后端 PasswordValidator 一致：≥6位 + 字母 + 数字） */
 const pwdChecks = computed(() => {
@@ -96,10 +110,11 @@ async function doLogin(){
 
   if(
       !loginForm.value.username ||
-      !loginForm.value.password
+      !loginForm.value.password ||
+      !loginForm.value.challengeCode
   ){
 
-    loginHint.value='请输入账号和密码'
+    loginHint.value='请输入账号、密码和验证码'
 
     return
 
@@ -116,6 +131,7 @@ async function doLogin(){
     if(!data.success){
 
       loginHint.value=data.message
+      void refreshLoginChallenge()
 
       return
 
@@ -145,6 +161,7 @@ async function doLogin(){
   }catch(e:any){
 
     loginHint.value=e.message
+    void refreshLoginChallenge()
 
   }finally{
 
@@ -414,6 +431,17 @@ async function doReset(){
                 type="password"
                 placeholder="输入密码"
             />
+          </label>
+
+          <label>
+            验证码
+            <div class="challenge-row">
+              <input v-model="loginForm.challengeCode" maxlength="5" autocomplete="off" placeholder="输入图中字符" />
+              <button class="challenge-image" type="button" title="换一张验证码" @click="refreshLoginChallenge">
+                <img v-if="loginChallenge" :src="loginChallenge.imageDataUrl" alt="登录验证码，点击刷新" />
+                <span v-else>加载中…</span>
+              </button>
+            </div>
           </label>
 
           <div class="pwd-row">
@@ -791,6 +819,29 @@ input:focus {
   align-items: center;
   margin: -4px 0 6px;
 }
+
+.challenge-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.challenge-row input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: .12em; }
+
+.challenge-image {
+  width: 120px;
+  min-height: 42px;
+  border: 1px solid #e2d8cd;
+  border-radius: 9px;
+  padding: 0;
+  overflow: hidden;
+  background: #f6eee5;
+  cursor: pointer;
+  color: #6f756f;
+  font-size: 12px;
+}
+
+.challenge-image img { display: block; width: 100%; height: 42px; object-fit: cover; }
 
 .link-btn {
   background: none;

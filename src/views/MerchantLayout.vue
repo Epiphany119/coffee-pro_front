@@ -13,6 +13,7 @@ const booting = ref(true)
 /** 侧边导航项（与路由 children 对应） */
 const navItems = [
   { path: '/merchant/dashboard', label: '今天怎么样', icon: '◧' },
+  { path: '/merchant/growth-agent', label: '增长 Agent', icon: '✦' },
   { path: '/merchant/orders', label: '订单节奏', icon: '▤' },
   { path: '/merchant/after-sales', label: '顾客关怀', icon: '◌' },
   { path: '/merchant/menu', label: '菜单灵感', icon: '☕' },

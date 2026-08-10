@@ -38,8 +38,9 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: apiTarget,
           changeOrigin: true,
-          timeout: 10000,
-          proxyTimeout: 10000,
+          // Agent 调用可能等待模型首包/平台限流恢复，不能在 10 秒时由开发代理提前断开。
+          timeout: 60000,
+          proxyTimeout: 60000,
           ws: false
         },
         // 商品图片静态资源（后端 {user.home}/coffee-uploads/ 映射 /uploads/**）
