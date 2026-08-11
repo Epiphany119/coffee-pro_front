@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useMerchantStore } from '@/stores/merchant'
-import { storeApi } from '@/api'
+import { businessAgentApi, storeApi } from '@/api'
 import type { Category, Product } from '@/api/types'
 import { isTemplateStore, templateProducts } from '@/templates/merchantTemplates'
 
@@ -42,6 +42,10 @@ const activeCategory = ref('全部')
 const dialogOpen = ref(false)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
+const syncingKnowledge = ref(false)
+const knowledgeDialogOpen = ref(false)
+const savingKnowledge = ref(false)
+const knowledgeForm = ref({ title: '', content: '' })
 
 const filtered = computed(() =>
   activeCategory.value === '全部'
@@ -226,6 +230,44 @@ async function toggleShelf(p: Product) {
   }
 }
 
+async function syncMenuKnowledge() {
+  if (storeId.value == null) return
+  syncingKnowledge.value = true
+  try {
+    const result = await businessAgentApi.syncMenuKnowledge(storeId.value)
+    ElMessage.success(result.count > 0 ? `已同步 ${result.count} 条菜单知识到 AI` : '菜单知识已是最新，无需重复同步')
+  } catch (e: any) {
+    ElMessage.error(e.message || '菜单知识同步失败，请检查后端服务')
+  } finally {
+    syncingKnowledge.value = false
+  }
+}
+
+function openKnowledgeDialog() {
+  knowledgeForm.value = { title: '', content: '' }
+  knowledgeDialogOpen.value = true
+}
+
+async function saveKnowledge() {
+  if (storeId.value == null) return
+  const title = knowledgeForm.value.title.trim()
+  const content = knowledgeForm.value.content.trim()
+  if (!title || !content) {
+    ElMessage.warning('请填写知识标题和具体内容')
+    return
+  }
+  savingKnowledge.value = true
+  try {
+    await businessAgentApi.createKnowledge({ storeId: storeId.value, title, content, source: 'merchant-operation' })
+    knowledgeDialogOpen.value = false
+    ElMessage.success('AI 业务知识已保存并同步到知识库')
+  } catch (e: any) {
+    ElMessage.error(e.message || '保存 AI 知识失败，请检查后端服务')
+  } finally {
+    savingKnowledge.value = false
+  }
+}
+
 function catClass(c: string) {
   if (c === 'coffee') return 'cat-coffee'
   if (c === 'food') return 'cat-food'
@@ -272,7 +314,12 @@ function pickImage(e: Event) {
   <div class="m-menu">
     <section class="menu-hero">
       <div><p>MENU STUDIO · {{ filtered.length }} ITEMS</p><h2>让每一杯，都有被选中的理由。</h2><small>管理价格、图片、规格与上架状态，顾客端会同步更新。</small></div>
-      <div class="hero-actions" v-if="!templateMode"><button class="add-btn ghost" @click="openCategoryDialog">＋ 新建类目</button><button class="add-btn" @click="openCreate">＋ 新增商品</button></div>
+      <div class="hero-actions" v-if="!templateMode">
+        <button class="add-btn ghost" :disabled="syncingKnowledge" @click="syncMenuKnowledge">{{ syncingKnowledge ? '同步中…' : '✦ 同步菜单到 AI' }}</button>
+        <button class="add-btn ghost" @click="openKnowledgeDialog">＋ 新增 AI 知识</button>
+        <button class="add-btn ghost" @click="openCategoryDialog">＋ 新建类目</button>
+        <button class="add-btn" @click="openCreate">＋ 新增商品</button>
+      </div>
     </section>
     <!-- 顶部：分类 + 新增 -->
     <div class="menu-head">
@@ -430,6 +477,22 @@ function pickImage(e: Event) {
         <button class="dlg-btn primary" @click="createCategory">创建</button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="knowledgeDialogOpen" title="新增 AI 业务知识" width="480px" class="menu-dialog" append-to-body :close-on-click-modal="false">
+      <p class="knowledge-tip">适合填写营业规则、活动说明、过敏提示或服务规范。请只填写已确认的真实规则。</p>
+      <el-form label-width="72px">
+        <el-form-item label="知识标题" required>
+          <el-input v-model="knowledgeForm.title" maxlength="80" show-word-limit placeholder="如：陆家嘴店午间套餐规则" />
+        </el-form-item>
+        <el-form-item label="具体内容" required>
+          <el-input v-model="knowledgeForm.content" type="textarea" :rows="6" maxlength="1000" show-word-limit placeholder="如：工作日 11:00 至 14:00，汉堡与薯条可优先作为组合推荐；实际优惠以结算页为准。" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <button class="dlg-btn ghost" @click="knowledgeDialogOpen = false">取消</button>
+        <button class="dlg-btn primary" :disabled="savingKnowledge" @click="saveKnowledge">{{ savingKnowledge ? '保存中…' : '保存到 AI 知识库' }}</button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -480,6 +543,7 @@ function pickImage(e: Event) {
     &:hover { opacity: .8; }
   }
 }
+.knowledge-tip{margin:0 0 16px;padding:10px 12px;border-radius:10px;background:#f2f6f1;color:#587060;font-size:12px;line-height:1.6}
 
 
 /* 商品卡 */

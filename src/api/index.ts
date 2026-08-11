@@ -168,6 +168,7 @@ request.interceptors.request.use((config) => {
   // 商家端订单、座位、店铺接口也必须使用商家令牌；用户与商家同时登录时不能误带用户令牌。
   const merchantRequest = path.startsWith('/merchant/')
     || path.startsWith('/store/')
+    || path.startsWith('/business-agent/')
     || path.startsWith('/seat/list')
     || (path === '/orders' && !!config.params?.storeId)
     || (path.startsWith('/orders/') && path.includes('storeId='))
@@ -260,6 +261,14 @@ export const guestApi = {
 export const menuApi = {
   getMenu: (storeId?: number) =>
     request.get<any, MenuResponse>('/menu', { params: { storeId } })
+}
+
+/** 商家端 AI 知识库：菜单事实同步与人工维护的运营规则都会写入 MySQL，并同步向量到 Milvus。 */
+export const businessAgentApi = {
+  syncMenuKnowledge: (storeId: number) =>
+    request.post<any, { accepted: boolean; count: number; message: string }>('/business-agent/knowledge/bootstrap/menu', { storeId }),
+  createKnowledge: (data: { storeId: number; title: string; content: string; source: string }) =>
+    request.post<any, { accepted: boolean; message: string }>('/business-agent/knowledge/documents', data)
 }
 
 /** 用户侧检索与个性化推荐（由服务端按当前身份和店铺计算） */
