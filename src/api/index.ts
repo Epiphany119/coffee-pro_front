@@ -136,13 +136,13 @@ const request = axios.create({
  * 每次请求从会话快照读取令牌，避免 store 初始化顺序和刷新恢复时出现循环依赖。
  * 登录用户优先于商家；游客令牌只保存在 sessionStorage，关闭标签页即失效。
  */
-function readAccessToken(preferMerchant = false): string | null {
+function readAccessToken(preferMerchant = false, skipMerchant = false): string | null {
   try {
     const user = JSON.parse(localStorage.getItem('fikaSession') || 'null')
     const merchant = JSON.parse(localStorage.getItem('fikaMerchant') || 'null')
     if (preferMerchant && merchant?.accessToken) return merchant.accessToken
     if (user?.accessToken) return user.accessToken
-    if (merchant?.accessToken) return merchant.accessToken
+    if (!skipMerchant && merchant?.accessToken) return merchant.accessToken
     return sessionStorage.getItem('fikaGuestToken')
   } catch {
     return null
@@ -165,14 +165,19 @@ request.interceptors.request.use((config) => {
     delete config.headers.Authorization
     return config
   }
+  // 顾客端 Agent 接口必须使用用户/游客 token，跳过商家 token
+  const customerAgentRequest = path.startsWith('/customer-agent/')
   // 商家端订单、座位、店铺接口也必须使用商家令牌；用户与商家同时登录时不能误带用户令牌。
-  const merchantRequest = path.startsWith('/merchant/')
+  const merchantRequest = !customerAgentRequest && (
+    path.startsWith('/merchant/')
     || path.startsWith('/store/')
     || path.startsWith('/business-agent/')
     || path.startsWith('/seat/list')
     || (path === '/orders' && !!config.params?.storeId)
     || (path.startsWith('/orders/') && path.includes('storeId='))
-  const token = readAccessToken(merchantRequest)
+  )
+  // customer-agent 路径跳过商家 token，确保使用正确的身份
+  const token = readAccessToken(merchantRequest, customerAgentRequest)
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -291,6 +296,74 @@ export const flashSaleApi = {
 export const customerAgentApi = {
   plan: (data: { storeId: number; userId?: number | null; guestId?: string | null; message: string }) =>
     request.post<any, CustomerAgentPlan>('/customer-agent/plan', data),
+
+  /** 流式 plan — SSE 防止 timeout，支持进度回调 */
+  planStream: (data: { storeId: number; userId?: number | null; guestId?: string | null; message: string },
+               callbacks: {
+                 onStage?: (stage: { step: string; progress: number; message: string }) => void
+                 onResult?: (plan: CustomerAgentPlan) => void
+                 onError?: (err: { message: string; step: string }) => void
+               }) => {
+    return new Promise<void>((resolve) => {
+      const baseURL = request.defaults.baseURL || ''
+      const token = readAccessToken(false, true)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      fetch(`${baseURL}/customer-agent/plan/stream`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(data)
+      }).then(async (response) => {
+        if (!response.ok) {
+          callbacks.onError?.({ message: `请求失败 ${response.status}`, step: 'failed' })
+          resolve()
+          return
+        }
+        const reader = response.body?.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        const read = async () => {
+          if (!reader) return
+          const { done, value } = await reader.read()
+          if (done) { resolve(); return }
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              const eventName = line.substring(6).trim()
+              const nextLine = lines.find(l => l.startsWith('data:'))
+              if (nextLine) {
+                const jsonStr = nextLine.substring(5).trim()
+                try {
+                  const payload = JSON.parse(jsonStr)
+                  if (eventName === 'stage') {
+                    callbacks.onStage?.(payload)
+                  } else if (eventName === 'result') {
+                    callbacks.onResult?.(payload)
+                  } else if (eventName === 'error') {
+                    callbacks.onError?.(payload)
+                  }
+                } catch { /* ignore parse errors */ }
+              }
+            }
+          }
+          read()
+        }
+        read()
+      }).catch((err) => {
+        callbacks.onError?.({ message: err.message || '网络错误', step: 'failed' })
+        resolve()
+      })
+    })
+  },
+
   /** 只提交一次性方案令牌；商品行由服务端从已审计的方案快照读取。 */
   confirm: (data: { planToken: string; storeId: number; userId?: number | null; guestId?: string | null; fulfillmentType: string; includeAddOn?: boolean }, idempotencyKey = createIdempotencyKey()) =>
     request.post<any, OrderResponse>('/customer-agent/plans/confirm', data, { headers: { 'Idempotency-Key': idempotencyKey } })
